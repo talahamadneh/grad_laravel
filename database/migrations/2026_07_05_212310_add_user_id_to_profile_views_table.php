@@ -10,22 +10,22 @@ return new class extends Migration
      * Run the migrations.
      */
     public function up(): void
-{
-    Schema::table('profile_views', function (Blueprint $table) {
-        $table->foreignId('user_id')
-              ->after('id')
-              ->constrained()
-              ->onDelete('cascade');
-    });
-}
+    {
+        if (!Schema::hasColumn('profile_views', 'user_id')) {
+            Schema::table('profile_views', function (Blueprint $table) {
+                $table->foreignId('user_id')
+                    ->after('id')
+                    ->constrained()
+                    ->onDelete('cascade');
+            });
+        }
+    }
 
     /**
      * Reverse the migrations.
      */
     public function down(): void
     {
-        Schema::table('profile_views', function (Blueprint $table) {
-            //
-        });
+        //
     }
 };

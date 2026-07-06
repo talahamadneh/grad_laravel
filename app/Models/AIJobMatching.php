@@ -6,13 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class AIJobMatching extends Model
 {
-    protected $table = 'ai_job_matching';
-    protected $primaryKey = 'id';
+    protected $table = 'ai_job_matches';
 
     protected $fillable = [
         'student_id',
         'job_post_id',
-        'match_score',
+        'match_percentage',
+        'missing_skills',
+        'recommendations',
     ];
 
     public function student()

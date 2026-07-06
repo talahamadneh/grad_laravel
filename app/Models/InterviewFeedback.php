@@ -5,13 +5,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class InterviewFeedback extends Model
 {
-    protected $table = 'interview_feedbacks';
-    protected $primaryKey = 'id';
+    protected $table = 'interview_feedback';
 
     protected $fillable = [
         'interview_id',
-        'feedback',
-        'rating',
+        'technical_score',
+        'communication_score',
+        'notes',
+        'final_decision',
     ];
 
     public function interview()

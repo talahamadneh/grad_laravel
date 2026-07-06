@@ -33,26 +33,26 @@ class User extends Authenticatable
 
     public function student()
     {
-        return $this->hasOne(Student::class, 'UserID', 'UserID');
+        return $this->hasOne(Student::class, 'user_id');
     }
 
     public function company()
     {
-        return $this->hasOne(Company::class, 'UserID', 'UserID');
+        return $this->hasOne(Company::class, 'user_id');
     }
 
     public function messagesSent()
     {
-        return $this->hasMany(Message::class, 'SenderID', 'UserID');
+        return $this->hasMany(Message::class, 'sender_id');
     }
 
     public function messagesReceived()
     {
-        return $this->hasMany(Message::class, 'ReceiverID', 'UserID');
+        return $this->hasMany(Message::class, 'receiver_id');
     }
 
     public function notifications()
     {
-        return $this->hasMany(Notification::class, 'UserID', 'UserID');
+        return $this->hasMany(Notification::class, 'user_id');
     }
 }

@@ -7,19 +7,18 @@ use Illuminate\Database\Eloquent\Model;
 class Skill extends Model
 {
     protected $table = 'skills';
-    protected $primaryKey = 'SkillID';
 
     protected $fillable = [
-        'SkillName',
+        'name',
     ];
 
     public function students()
     {
-        return $this->belongsToMany(Student::class, 'student_skills');
+        return $this->belongsToMany(Student::class, 'student_skills', 'skill_id', 'student_id');
     }
 
     public function jobPosts()
     {
-        return $this->belongsToMany(JobPost::class, 'job_skills');
+        return $this->belongsToMany(JobPost::class, 'job_skills', 'skill_id', 'job_post_id');
     }
 }

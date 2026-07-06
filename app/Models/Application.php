@@ -12,7 +12,10 @@ class Application extends Model
     protected $fillable = [
         'student_id',
         'job_post_id',
+        'resume_id',
+        'applied_at',
         'status',
+        'match_score',
     ];
 
     public function student()
