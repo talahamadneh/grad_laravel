@@ -11,6 +11,8 @@ use App\Http\Controllers\StudentDashboardController;
 use App\Http\Controllers\StudentJobController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ResumeController;
+use App\Http\Controllers\JobController;
+
 
 
 
@@ -38,5 +40,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/student/resume/{id}', [ResumeController::class, 'update']);
     Route::delete('/student/resume/{id}', [ResumeController::class, 'destroy']);
     Route::post('/student/resume/ai-improve', [ResumeController::class, 'aiImprove']);
-    Route::post('/student/resume/{id}/generate-pdf', [ResumeController::class, 'generatePdf']);
+
+    //job posts
+    Route::get('/jobs', [JobController::class,'index']);
+    Route::get('/jobs/{id}', [JobController::class, 'show']);
 });

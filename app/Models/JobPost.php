@@ -14,6 +14,7 @@ class JobPost extends Model
         'description',
         'salary',
         'employment_type',
+        'work_mode',
         'location',
         'deadline',
         'vacancies',
