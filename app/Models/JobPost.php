@@ -12,6 +12,9 @@ class JobPost extends Model
         'company_id',
         'title',
         'description',
+        'about',
+        'responsibilities',
+        'requirements',
         'salary',
         'employment_type',
         'work_mode',
@@ -44,5 +47,10 @@ class JobPost extends Model
     public function aiMatches()
     {
         return $this->hasMany(AIJobMatching::class);
+    }
+
+    public function savedBy()
+    {
+        return $this->hasMany(SavedJob::class);
     }
 }
