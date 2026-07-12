@@ -7,6 +7,8 @@ use App\Models\JobPost;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\SavedJob;
+use App\Models\Application;
+use App\Models\Resume;
 
 class JobController extends Controller
 {
@@ -110,4 +112,158 @@ class JobController extends Controller
 
         return response()->json($jobs);
     }
+
+
+    public function applyJob(Request $request, $id)
+    {
+        $student = Auth::user()->student;
+
+        if (!$student) {
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
+        }
+
+        $job = JobPost::where('status', 'Open')->find($id);
+
+        if (!$job) {
+            return response()->json([
+                'message' => 'Job not found or closed'
+            ], 404);
+        }
+
+        $already = Application::where('student_id', $student->id)
+            ->where('job_post_id', $id)
+            ->first();
+
+        if ($already) {
+            return response()->json([
+                'message' => 'You already applied to this job'
+            ], 409);
+        }
+
+        $request->validate([
+            'resume_id' => 'nullable|integer|exists:resumes,id'
+        ]);
+
+        if ($request->filled('resume_id')) {
+            $resume = Resume::where('id', $request->resume_id)
+                ->where('student_id', $student->id)
+                ->first();
+
+            if (!$resume) {
+                return response()->json([
+                    'message' => 'Invalid resume selected'
+                ], 422);
+            }
+        } else {
+            $resume = Resume::where('student_id', $student->id)->latest()->first();
+        }
+
+        if (!$resume) {
+            return response()->json([
+                'message' => 'Please create a resume before applying'
+            ], 422);
+        }
+
+        $application = Application::create([
+            'student_id' => $student->id,
+            'job_post_id' => $id,
+            'resume_id' => $resume->id,
+            'status' => 'Applied',
+            'applied_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Application submitted successfully',
+            'application' => $application
+        ], 201);
+    }
+
+    public function checkApplied($id)
+    {
+        $student = Auth::user()->student;
+
+        $applied = Application::where('student_id', $student->id)
+            ->where('job_post_id', $id)
+            ->exists();
+
+        return response()->json([
+            'applied' => $applied
+        ]);
+    }
+
+    public function withdrawApplication($id)
+    {
+        $student = Auth::user()->student;
+
+        $application = Application::where('student_id', $student->id)
+            ->where('job_post_id', $id)
+            ->first();
+
+        if (!$application) {
+            return response()->json([
+                'message' => 'Application not found'
+            ], 404);
+        }
+
+        $application->delete();
+
+        return response()->json([
+            'message' => 'Application withdrawn successfully'
+        ]);
+    }
+
+    public function myApplications()
+{
+    $student = Auth::user()->student;
+
+    if (!$student) {
+        return response()->json([
+            'message' => 'Student profile not found'
+        ], 404);
+    }
+
+    $applications = Application::with(['jobPost.company'])
+        ->where('student_id', $student->id)
+        ->orderByDesc('applied_at')
+        ->get();
+
+    $statusMap = [
+        'Applied' => 'Applied',
+        'Under Review' => 'Applied',
+        'Shortlisted' => 'Shortlisted',
+        'Interview' => 'Interview',
+        'Accepted' => 'Hired',
+        'Rejected' => 'Rejected',
+    ];
+
+    $mapped = $applications->map(function ($app) use ($statusMap) {
+        return [
+            'id' => $app->id,
+            'job_post_id' => $app->job_post_id,
+            'title' => $app->jobPost->title ?? 'N/A',
+            'company' => $app->jobPost->company->company_name ?? 'N/A',
+            'logo' => $app->jobPost->company->logo ?? null,
+            'status' => $statusMap[$app->status] ?? $app->status,
+            'date' => $app->applied_at?->format('M d, Y'),
+        ];
+    });
+
+    $total = $applications->count();
+    $active = $applications->whereNotIn('status', ['Accepted', 'Rejected'])->count();
+    $interviews = $applications->where('status', 'Interview')->count();
+    $offers = $applications->where('status', 'Accepted')->count();
+
+    return response()->json([
+        'stats' => [
+            'total' => $total,
+            'active' => $active,
+            'interviews' => $interviews,
+            'offers' => $offers,
+        ],
+        'applications' => $mapped,
+    ]);
+}
+
 }

@@ -50,4 +50,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/jobs/{id}/saved', [JobController::class, 'checkSaved']);
 
     Route::get('/student/saved-jobs',[JobController::class, 'savedJobs']);
+
+    //Apply 
+    Route::post('/jobs/{id}/apply', [JobController::class, 'applyJob']);
+    Route::get('/jobs/{id}/applied', [JobController::class, 'checkApplied']);
+    Route::delete('/jobs/{id}/apply', [JobController::class, 'withdrawApplication']);
+    Route::get('/student/applications', [JobController::class, 'myApplications']);
 });
