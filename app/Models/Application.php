@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Application extends Model
 {
     protected $table = 'applications';
     protected $primaryKey = 'id';
+
+    use HasFactory;
 
     protected $fillable = [
         'student_id',
@@ -16,6 +19,11 @@ class Application extends Model
         'applied_at',
         'status',
         'match_score',
+    ];
+
+    protected $casts = [
+        'applied_at' => 'datetime',
+        'match_score' => 'decimal:2',
     ];
 
     public function student()
