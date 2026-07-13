@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Skill;
 
 class JobPost extends Model
 {
@@ -21,7 +22,8 @@ class JobPost extends Model
         'location',
         'deadline',
         'vacancies',
-        'status'
+        'status',
+        'required_major'
     ];
 
     public function company()

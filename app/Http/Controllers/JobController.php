@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\JobPost;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Services\JobMatchingService;
 use App\Models\SavedJob;
 use App\Models\Application;
 use App\Models\Resume;
@@ -215,55 +216,78 @@ class JobController extends Controller
     }
 
     public function myApplications()
-{
-    $student = Auth::user()->student;
+    {
+        $student = Auth::user()->student;
 
-    if (!$student) {
+        if (!$student) {
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
+        }
+
+        $applications = Application::with(['jobPost.company'])
+            ->where('student_id', $student->id)
+            ->orderByDesc('applied_at')
+            ->get();
+
+        $statusMap = [
+            'Applied' => 'Applied',
+            'Under Review' => 'Applied',
+            'Shortlisted' => 'Shortlisted',
+            'Interview' => 'Interview',
+            'Accepted' => 'Hired',
+            'Rejected' => 'Rejected',
+        ];
+
+        $mapped = $applications->map(function ($app) use ($statusMap) {
+            return [
+                'id' => $app->id,
+                'job_post_id' => $app->job_post_id,
+                'title' => $app->jobPost->title ?? 'N/A',
+                'company' => $app->jobPost->company->company_name ?? 'N/A',
+                'logo' => $app->jobPost->company->logo ?? null,
+                'status' => $statusMap[$app->status] ?? $app->status,
+                'date' => $app->applied_at?->format('M d, Y'),
+            ];
+        });
+
+        $total = $applications->count();
+        $active = $applications->whereNotIn('status', ['Accepted', 'Rejected'])->count();
+        $interviews = $applications->where('status', 'Interview')->count();
+        $offers = $applications->where('status', 'Accepted')->count();
+
         return response()->json([
-            'message' => 'Student profile not found'
-        ], 404);
+            'stats' => [
+                'total' => $total,
+                'active' => $active,
+                'interviews' => $interviews,
+                'offers' => $offers,
+            ],
+            'applications' => $mapped,
+        ]);
     }
 
-    $applications = Application::with(['jobPost.company'])
-        ->where('student_id', $student->id)
-        ->orderByDesc('applied_at')
-        ->get();
 
-    $statusMap = [
-        'Applied' => 'Applied',
-        'Under Review' => 'Applied',
-        'Shortlisted' => 'Shortlisted',
-        'Interview' => 'Interview',
-        'Accepted' => 'Hired',
-        'Rejected' => 'Rejected',
-    ];
+ public function recommendedJobs(JobMatchingService $service)
+{
 
-    $mapped = $applications->map(function ($app) use ($statusMap) {
-        return [
-            'id' => $app->id,
-            'job_post_id' => $app->job_post_id,
-            'title' => $app->jobPost->title ?? 'N/A',
-            'company' => $app->jobPost->company->company_name ?? 'N/A',
-            'logo' => $app->jobPost->company->logo ?? null,
-            'status' => $statusMap[$app->status] ?? $app->status,
-            'date' => $app->applied_at?->format('M d, Y'),
-        ];
-    });
+    $student = Auth::user()->student;
 
-    $total = $applications->count();
-    $active = $applications->whereNotIn('status', ['Accepted', 'Rejected'])->count();
-    $interviews = $applications->where('status', 'Interview')->count();
-    $offers = $applications->where('status', 'Accepted')->count();
 
-    return response()->json([
-        'stats' => [
-            'total' => $total,
-            'active' => $active,
-            'interviews' => $interviews,
-            'offers' => $offers,
-        ],
-        'applications' => $mapped,
-    ]);
+    if(!$student)
+    {
+        return response()->json([
+            "message"=>"Student profile not found"
+        ],404);
+    }
+
+
+    $jobs = $service->getRecommendedJobs($student);
+
+
+    return response()->json($jobs);
+
 }
+
 
 }
