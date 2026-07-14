@@ -12,18 +12,19 @@ use App\Http\Controllers\StudentJobController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ResumeController;
 use App\Http\Controllers\JobController;
+use App\Http\Controllers\MessageController;
 
 
 
 
-Route::get('/landing/stats', [LandingController::class, 'stats']);
+    Route::get('/landing/stats', [LandingController::class, 'stats']);
 
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [AuthController::class, 'login']);
 
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 
-Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
 
     //Dashboard
@@ -45,11 +46,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/jobs', [JobController::class, 'index']);
     Route::get('/jobs/{id}', [JobController::class, 'show']);
 
-    Route::post('/jobs/{id}/save',[JobController::class, 'saveJob']);
-    Route::delete('/jobs/{id}/save',[JobController::class, 'removeSaveJob']);
+    Route::post('/jobs/{id}/save', [JobController::class, 'saveJob']);
+    Route::delete('/jobs/{id}/save', [JobController::class, 'removeSaveJob']);
     Route::get('/jobs/{id}/saved', [JobController::class, 'checkSaved']);
 
-    Route::get('/student/saved-jobs',[JobController::class, 'savedJobs']);
+    Route::get('/student/saved-jobs', [JobController::class, 'savedJobs']);
 
     //Apply 
     Route::post('/jobs/{id}/apply', [JobController::class, 'applyJob']);
@@ -60,6 +61,10 @@ Route::middleware('auth:sanctum')->group(function () {
     //Recommendation
     Route::get('/student/recommended-jobs', [JobController::class, 'recommendedJobs']);
 
-    });
+    //Messages
+    Route::get('/messages', [MessageController::class, 'index']);
+    Route::get('/messages/{user}', [MessageController::class, 'show']);
+    Route::post('/messages', [MessageController::class, 'store']);
+});
 
 

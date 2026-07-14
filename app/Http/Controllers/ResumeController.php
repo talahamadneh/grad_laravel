@@ -8,9 +8,7 @@ use Illuminate\Support\Facades\Validator;
 
 class ResumeController extends Controller
 {
-    /**
-     * جلب السيرة الذاتية للطالب
-     */
+    
     public function index(Request $request)
     {
         $student = $request->user()->student;
@@ -22,7 +20,6 @@ class ResumeController extends Controller
         $resume = Resume::where('student_id', $student->id)->first();
 
         if (!$resume) {
-            // إرجاع بيانات فارغة مع البيانات الأساسية من الـ Profile
             return response()->json([
                 'id' => null,
                 'full_name' => $request->user()->name,
@@ -40,9 +37,7 @@ class ResumeController extends Controller
         return response()->json($resume);
     }
 
-    /**
-     * إنشاء سيرة ذاتية جديدة
-     */
+   
     public function store(Request $request)
     {
         $student = $request->user()->student;
@@ -88,9 +83,7 @@ class ResumeController extends Controller
         ], 201);
     }
 
-    /**
-     * تحديث السيرة الذاتية
-     */
+   
     public function update(Request $request, $id)
     {
         $student = $request->user()->student;
@@ -132,9 +125,7 @@ class ResumeController extends Controller
         ]);
     }
 
-    /**
-     * حذف السيرة الذاتية
-     */
+   
     public function destroy(Request $request, $id)
     {
         $student = $request->user()->student;
@@ -156,9 +147,7 @@ class ResumeController extends Controller
         return response()->json(['message' => 'Resume deleted successfully']);
     }
 
-    /**
-     * AI Improve - تحسين النص
-     */
+
     public function aiImprove(Request $request)
     {
         $validator = Validator::make($request->all(), [
