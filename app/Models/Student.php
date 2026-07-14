@@ -2,28 +2,32 @@
 
 namespace App\Models;
 
+
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Skill;
+
 
 class Student extends Model
 {
     protected $fillable = [
-        'user_id',
-        'university',
-        'major',
-        'graduation_year',
-        'phone',
-        'linkedin',
-        'github',
-        'portfolio',
-        'bio',
-        'profile_completion',
-        'avatar',
-        'headline',
-        'location',
-        'gpa'
-    ];
+    'user_id',
+    'university',
+    'major',
+    'graduation_year',
+    'phone',
+    'linkedin',
+    'github',
+    'portfolio',
+    'bio',
+    'profile_completion',
+    'avatar',
+    'headline',
+    'location',
+    'gpa',
+    'preferred_employment_type'
+];
 
-    // العلاقات
+    
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
