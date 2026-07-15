@@ -6,6 +6,8 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Models\NotificationSetting;
+use App\Models\PrivacySetting;
 
 class User extends Authenticatable
 {
@@ -54,5 +56,16 @@ class User extends Authenticatable
     public function notifications()
     {
         return $this->hasMany(Notification::class, 'user_id');
+    }
+
+    public function notificationSetting()
+    {
+        return $this->hasOne(NotificationSetting::class);
+    }
+
+
+    public function privacySetting()
+    {
+        return $this->hasOne(PrivacySetting::class);
     }
 }

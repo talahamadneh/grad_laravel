@@ -13,7 +13,8 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ResumeController;
 use App\Http\Controllers\JobController;
 use App\Http\Controllers\MessageController;
-
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\SettingsController;
 
 
 
@@ -26,6 +27,7 @@ use App\Http\Controllers\MessageController;
 
     Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
+    Route::post('/logout', [AuthController::class, 'logout']);
 
     //Dashboard
     Route::get('/student/dashboard', [StudentDashboardController::class, 'index']);
@@ -65,6 +67,22 @@ use App\Http\Controllers\MessageController;
     Route::get('/messages', [MessageController::class, 'index']);
     Route::get('/messages/{user}', [MessageController::class, 'show']);
     Route::post('/messages', [MessageController::class, 'store']);
+
+    //Notifications
+    Route::get('/notifications',[NotificationController::class,'index']);
+    Route::patch('/notifications/{id}/read',[NotificationController::class,'markAsRead']);
+    Route::patch('/notifications/read-all',[NotificationController::class,'markAllAsRead']);
+    Route::delete('/notifications/{id}',[NotificationController::class,'destroy']);
+    
+    //Settings
+    Route::put('/settings/password',[SettingsController::class,'changePassword']);
+    Route::get('/settings/notifications',[SettingsController::class,'getNotificationSettings']);
+    Route::put('/settings/notifications',[SettingsController::class,'updateNotificationSettings']);
+    Route::get('/settings/privacy',[SettingsController::class,'getPrivacySettings']);
+    Route::put('/settings/privacy',[SettingsController::class,'updatePrivacySettings']);
+    Route::delete('/settings/account',[SettingsController::class,'deleteAccount']);
+
+
 });
 
 

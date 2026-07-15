@@ -10,9 +10,18 @@ use App\Services\JobMatchingService;
 use App\Models\SavedJob;
 use App\Models\Application;
 use App\Models\Resume;
+use App\Services\NotificationService;
+
 
 class JobController extends Controller
 {
+    protected NotificationService $notificationService;
+
+    public function __construct(NotificationService $notificationService)
+    {
+        $this->notificationService = $notificationService;
+    }
+
     public function index(Request $request)
     {
         $jobs = JobPost::with([
@@ -175,6 +184,12 @@ class JobController extends Controller
             'applied_at' => now(),
         ]);
 
+        $this->notificationService->send(
+            $job->company->user_id,
+            'New Job Application',
+            $student->user->name . ' applied for "' . $job->title . '".'
+        );
+
         return response()->json([
             'message' => 'Application submitted successfully',
             'application' => $application
@@ -268,26 +283,25 @@ class JobController extends Controller
     }
 
 
- public function recommendedJobs(JobMatchingService $service)
-{
-
-    $student = Auth::user()->student;
-
-
-    if(!$student)
+    public function recommendedJobs(JobMatchingService $service)
     {
-        return response()->json([
-            "message"=>"Student profile not found"
-        ],404);
+
+        $student = Auth::user()->student;
+
+
+        if (!$student) {
+            return response()->json([
+                "message" => "Student profile not found"
+            ], 404);
+        }
+
+
+        $jobs = $service->getRecommendedJobs($student);
+
+
+        return response()->json($jobs);
+
     }
-
-
-    $jobs = $service->getRecommendedJobs($student);
-
-
-    return response()->json($jobs);
-
-}
 
 
 }

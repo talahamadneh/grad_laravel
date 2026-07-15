@@ -9,11 +9,7 @@ use Illuminate\Http\Request;
 
 class MessageController extends Controller
 {
-    /*
-    |--------------------------------------------------------------------------
-    | Get All Conversations
-    |--------------------------------------------------------------------------
-    */
+  
     public function index(Request $request)
     {
         $user = $request->user();
@@ -79,11 +75,7 @@ class MessageController extends Controller
         return response()->json(array_values($conversations));
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Open Conversation
-    |--------------------------------------------------------------------------
-    */
+    
 
     public function show(Request $request, User $user)
     {
@@ -123,11 +115,7 @@ class MessageController extends Controller
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Send Message
-    |--------------------------------------------------------------------------
-    */
+   
 
     public function store(Request $request)
     {

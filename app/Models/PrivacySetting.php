@@ -4,19 +4,26 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class Notification extends Model
+
+class PrivacySetting extends Model
 {
 
     protected $fillable = [
+
         'user_id',
-        'title',
-        'message',
-        'is_read'
+        'profile_visibility',
+        'contact_visibility',
+        'ai_resume_analysis'
+
     ];
 
 
     protected $casts = [
-        'is_read'=>'boolean'
+
+        'profile_visibility'=>'boolean',
+        'contact_visibility'=>'boolean',
+        'ai_resume_analysis'=>'boolean'
+
     ];
 
 
