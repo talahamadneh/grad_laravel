@@ -1,168 +1,541 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>{{ $resume->full_name }} - Resume</title>
-    <style>
-        * { box-sizing: border-box; }
-        body {
-            font-family: DejaVu Sans, sans-serif;
-            color: #1e293b;
-            font-size: 12px;
-            margin: 0;
-            padding: 0;
-        }
-        .header {
-            background: #0f172a;
-            color: #fff;
-            padding: 30px 40px;
-        }
-        .header table { width: 100%; border-collapse: collapse; }
-        .avatar {
-            width: 70px;
-            height: 70px;
-            border-radius: 50%;
-            object-fit: cover;
-        }
-        .name { font-size: 24px; font-weight: bold; margin: 0 0 4px 0; }
-        .title { font-size: 14px; color: #cbd5e1; margin: 0 0 12px 0; }
-        .contact-line { font-size: 10.5px; color: #e2e8f0; }
-        .contact-line span { margin-right: 16px; }
-        .content { padding: 30px 40px; }
-        .section { margin-bottom: 22px; }
-        .section-title {
-            font-size: 10.5px;
-            font-weight: bold;
-            color: #3b82f6;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            border-bottom: 1px solid #e2e8f0;
-            padding-bottom: 6px;
-            margin-bottom: 12px;
-        }
-        .item { margin-bottom: 14px; }
-        .item-title { font-size: 13px; font-weight: bold; color: #0f172a; }
-        .item-sub { font-size: 11.5px; color: #64748b; }
-        .item-date { font-size: 10px; color: #94a3b8; float: right; }
-        .item-desc { font-size: 11.5px; color: #475569; line-height: 1.5; margin-top: 4px; }
-        .chip {
-            display: inline-block;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            padding: 4px 10px;
-            margin: 0 6px 6px 0;
-            font-size: 11px;
-            color: #1e293b;
-        }
-        .clear { clear: both; }
-    </style>
+<meta charset="utf-8">
+<title>{{ $resume->full_name }} - Resume</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: DejaVu Sans, sans-serif;
+    color: #222;
+    margin: 0;
+    padding: 0;
+    font-size: 12px;
+}
+
+.page {
+    padding: 50px;
+}
+
+.header {
+    width:100%;
+    margin-bottom:35px;
+}
+
+.header-table {
+    width:100%;
+}
+
+.left-header {
+    width:70%;
+}
+
+.line {
+    width:2px;
+    height:50px;
+    background:#333;
+    margin-bottom:15px;
+}
+
+.first-name {
+    margin:0;
+    font-size:24px;
+    font-weight:300;
+    letter-spacing:8px;
+    text-transform:uppercase;
+    color:#444;
+}
+
+.last-name {
+    margin:5px 0 0;
+    font-size:42px;
+    font-weight:bold;
+    letter-spacing:10px;
+    text-transform:uppercase;
+    color:#222;
+}
+
+.title {
+    margin-top:15px;
+    font-size:11px;
+    font-weight:bold;
+    letter-spacing:3px;
+    text-transform:uppercase;
+    color:#666;
+}
+
+
+.avatar {
+    width:130px;
+    height:130px;
+    border-radius:50%;
+}
+
+
+.columns {
+    width:100%;
+}
+
+.left-column {
+    width:35%;
+    vertical-align:top;
+    padding-right:40px;
+}
+
+.right-column {
+    width:65%;
+    vertical-align:top;
+}
+
+
+.section {
+    margin-bottom:30px;
+}
+
+
+.section-title {
+
+    font-size:15px;
+    font-weight:bold;
+    letter-spacing:4px;
+    text-transform:uppercase;
+    color:#222;
+    margin-bottom:18px;
+}
+
+
+.contact-item {
+
+    margin-bottom:12px;
+    color:#444;
+    font-size:12px;
+
+}
+
+
+.skill,
+.language {
+
+    margin-bottom:8px;
+    color:#444;
+
+}
+
+
+.dot {
+
+    width:4px;
+    height:4px;
+    background:#444;
+    display:inline-block;
+    border-radius:50%;
+    margin-right:10px;
+
+}
+
+
+.profile {
+
+    font-size:12px;
+    color:#555;
+    line-height:1.7;
+    text-align:justify;
+    text-transform:uppercase;
+}
+
+
+.timeline-item {
+
+    margin-bottom:20px;
+
+}
+
+
+.timeline-title {
+
+    font-size:13px;
+    font-weight:bold;
+    text-transform:uppercase;
+}
+
+
+.timeline-sub {
+
+    color:#555;
+    margin-top:5px;
+
+}
+
+
+.timeline-date {
+
+    color:#777;
+    font-size:11px;
+
+}
+
+
+.description {
+
+    color:#555;
+    line-height:1.6;
+    margin-top:8px;
+
+}
+
+
+</style>
+
 </head>
+
+
 <body>
 
-    <div class="header">
-        <table>
-            <tr>
-                @if($avatar)
-                <td style="width: 80px;">
-                    <img src="{{ $avatar }}" class="avatar" />
-                </td>
-                @endif
-                <td>
-                    <p class="name">{{ $resume->full_name }}</p>
-                    <p class="title">{{ $resume->professional_title }}</p>
-                    <div class="contact-line">
-                        @if($email)<span>{{ $email }}</span>@endif
-                        @if($phone)<span>{{ $phone }}</span>@endif
-                        @if($location)<span>{{ $location }}</span>@endif
-                        @if($portfolio)<span>{{ $portfolio }}</span>@endif
-                    </div>
-                </td>
-            </tr>
-        </table>
-    </div>
 
-    <div class="content">
+<div class="page">
 
-        @if($resume->summary)
-        <div class="section">
-            <div class="section-title">Summary</div>
-            <div class="item-desc">{{ $resume->summary }}</div>
-        </div>
-        @endif
 
-        @if(count($education))
-        <div class="section">
-            <div class="section-title">Education</div>
-            @foreach($education as $e)
-            <div class="item">
-                <span class="item-date">{{ $e['start_date'] ?? '' }} - {{ $e['end_date'] ?? 'Present' }}</span>
-                <div class="item-title">{{ $e['university'] ?? '' }}</div>
-                <div class="item-sub">{{ $e['degree'] ?? '' }} {{ !empty($e['field_of_study']) ? 'in ' . $e['field_of_study'] : '' }}</div>
-                <div class="clear"></div>
-            </div>
-            @endforeach
-        </div>
-        @endif
+<!-- HEADER -->
 
-        @if(count($experience))
-        <div class="section">
-            <div class="section-title">Experience</div>
-            @foreach($experience as $e)
-            <div class="item">
-                <span class="item-date">{{ $e['start_date'] ?? '' }} - {{ $e['end_date'] ?? 'Present' }}</span>
-                <div class="item-title">{{ $e['title'] ?? '' }} @if(!empty($e['company'])) &middot; {{ $e['company'] }} @endif</div>
-                <div class="item-desc">{{ $e['description'] ?? '' }}</div>
-                <div class="clear"></div>
-            </div>
-            @endforeach
-        </div>
-        @endif
+<table class="header-table">
 
-        @if(count($projects))
-        <div class="section">
-            <div class="section-title">Projects</div>
-            @foreach($projects as $p)
-            <div class="item">
-                <div class="item-title">{{ $p['name'] ?? '' }}</div>
-                @if(!empty($p['link']))<div class="item-sub">{{ $p['link'] }}</div>@endif
-                <div class="item-desc">{{ $p['description'] ?? '' }}</div>
-            </div>
-            @endforeach
-        </div>
-        @endif
+<tr>
 
-        @if(count($skills))
-        <div class="section">
-            <div class="section-title">Skills</div>
-            @foreach($skills as $s)
-                <span class="chip">{{ $s['name'] ?? '' }}</span>
-            @endforeach
-        </div>
-        @endif
+<td class="left-header">
 
-        @if(count($certificates))
-        <div class="section">
-            <div class="section-title">Certificates</div>
-            @foreach($certificates as $c)
-            <div class="item">
-                <span class="item-date">{{ $c['year'] ?? '' }}</span>
-                <div class="item-title">{{ $c['name'] ?? '' }} @if(!empty($c['issuer'])) &middot; {{ $c['issuer'] }} @endif</div>
-                <div class="clear"></div>
-            </div>
-            @endforeach
-        </div>
-        @endif
+<div class="line"></div>
 
-        @if(count($languages))
-        <div class="section">
-            <div class="section-title">Languages</div>
-            @foreach($languages as $l)
-                <span class="chip">{{ $l['language'] ?? '' }} @if(!empty($l['level'])) &middot; {{ $l['level'] }} @endif</span>
-            @endforeach
-        </div>
-        @endif
 
-    </div>
+<?php
+$nameParts = explode(' ', trim($resume->full_name));
+
+$first = $nameParts[0] ?? '';
+$last = implode(' ', array_slice($nameParts,1));
+
+?>
+
+
+<h1 class="first-name">
+{{ $first }}
+</h1>
+
+
+<h1 class="last-name">
+{{ $last }}
+</h1>
+
+
+<p class="title">
+{{ $resume->professional_title }}
+</p>
+
+
+</td>
+
+
+<td align="right">
+
+@if($avatar)
+
+<img class="avatar" src="{{ $avatar }}">
+
+@endif
+
+
+</td>
+
+
+</tr>
+
+</table>
+
+
+
+<!-- BODY -->
+
+
+<table class="columns">
+
+
+<tr>
+
+
+<td class="left-column">
+
+
+@if($resume->location || $resume->phone || $resume->email)
+
+<div class="section">
+
+
+<h3 class="section-title">
+CONTACT
+</h3>
+
+
+@if($resume->location)
+<div class="contact-item">
+📍 {{ $resume->location }}
+</div>
+@endif
+
+
+@if($resume->phone)
+<div class="contact-item">
+☎ {{ $resume->phone }}
+</div>
+@endif
+
+
+@if($resume->email)
+<div class="contact-item">
+✉ {{ $resume->email }}
+</div>
+@endif
+
+
+</div>
+
+@endif
+
+
+
+
+
+@if(count($skills))
+
+<div class="section">
+
+
+<h3 class="section-title">
+SKILLS
+</h3>
+
+
+@foreach($skills as $s)
+
+<div class="skill">
+
+<span class="dot"></span>
+
+{{ is_array($s) ? ($s['name'] ?? '') : $s }}
+
+</div>
+
+
+@endforeach
+
+
+</div>
+
+@endif
+
+
+
+
+@if(count($education))
+
+<div class="section">
+
+<h3 class="section-title">
+EDUCATION
+</h3>
+
+
+@foreach($education as $e)
+
+
+<div class="timeline-item">
+
+
+<div class="timeline-title">
+
+{{ $e['degree'] ?? '' }}
+
+@if(!empty($e['field_of_study']))
+IN {{ $e['field_of_study'] }}
+@endif
+
+</div>
+
+
+<div class="timeline-sub">
+
+{{ $e['university'] ?? $e['institution'] ?? '' }}
+
+</div>
+
+
+<div class="timeline-date">
+
+Graduated:
+{{ $e['end_date'] ?? 'Present' }}
+
+</div>
+
+
+</div>
+
+
+@endforeach
+
+
+</div>
+
+@endif
+
+
+
+
+
+@if(count($languages))
+
+
+<div class="section">
+
+<h3 class="section-title">
+LANGUAGES
+</h3>
+
+
+@foreach($languages as $l)
+
+<div class="language">
+
+<span class="dot"></span>
+
+<b>{{ $l['language'] ?? '' }}</b>
+
+@if(!empty($l['level']))
+({{ $l['level'] }})
+@endif
+
+</div>
+
+
+@endforeach
+
+
+</div>
+
+@endif
+
+
+
+</td>
+
+
+
+
+
+<td class="right-column">
+
+
+
+@if($resume->summary)
+
+<div class="section">
+
+<h3 class="section-title">
+PROFILE
+</h3>
+
+
+<p class="profile">
+
+{{ $resume->summary }}
+
+</p>
+
+
+</div>
+
+@endif
+
+
+
+
+
+@if(count($experience))
+
+
+<div class="section">
+
+
+<h3 class="section-title">
+EXPERIENCE
+</h3>
+
+
+
+@foreach($experience as $e)
+
+
+<div class="timeline-item">
+
+
+<div class="timeline-title">
+
+{{ $e['title'] ?? $e['position'] ?? '' }}
+
+</div>
+
+
+
+<div class="timeline-date">
+
+{{ $e['start_date'] ?? '' }}
+-
+{{ $e['end_date'] ?? 'Present' }}
+
+</div>
+
+
+
+<div class="timeline-sub">
+
+{{ $e['company'] ?? '' }}
+
+</div>
+
+
+
+<div class="description">
+
+{{ $e['description'] ?? '' }}
+
+</div>
+
+
+</div>
+
+
+
+@endforeach
+
+
+
+</div>
+
+
+@endif
+
+
+
+</td>
+
+
+</tr>
+
+</table>
+
+
+</div>
+
 
 </body>
 </html>

@@ -28,7 +28,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Dashboard
     Route::get('/student/dashboard', [StudentDashboardController::class, 'index']);
-    Route::get('/student/recommended-jobs', [StudentJobController::class, 'recommended']);
+  //  Route::get('/student/recommended-jobs', [StudentJobController::class, 'recommended']);
 
     // Student Profile
     Route::get('/student/profile', [StudentController::class, 'profile']);
@@ -40,6 +40,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/student/resume/{id}', [ResumeController::class, 'update']);
     Route::delete('/student/resume/{id}', [ResumeController::class, 'destroy']);
     Route::post('/student/resume/ai-improve', [ResumeController::class, 'aiImprove']);
+    Route::get('/student/resume/{id}/pdf', [ResumeController::class, 'generatePdf']);
 
     //job posts
     Route::get('/jobs', [JobController::class, 'index']);

@@ -4,13 +4,11 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Student;
+use App\Models\Skill;
 use Illuminate\Support\Facades\Validator;
 
 class StudentController extends Controller
 {
-    /**
-     * جلب بيانات الطالب
-     */
     public function profile(Request $request)
     {
         $student = Student::where('user_id', $request->user()->id)
@@ -55,9 +53,6 @@ class StudentController extends Controller
         ]);
     }
 
-    /**
-     * تحديث بيانات الطالب
-     */
     public function update(Request $request)
     {
         $student = Student::where('user_id', $request->user()->id)->first();
@@ -83,6 +78,7 @@ class StudentController extends Controller
             'linkedin' => 'nullable|string|max:255',
             'github' => 'nullable|string|max:255',
             'avatar' => 'nullable|string',
+            'skills' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
@@ -93,7 +89,6 @@ class StudentController extends Controller
 
         $validated = $validator->validated();
 
-        // تحديث الـ User
         $user = $request->user();
         if (isset($validated['name'])) {
             $user->name = $validated['name'];
@@ -103,7 +98,6 @@ class StudentController extends Controller
         }
         $user->save();
 
-        // تحديث الـ Student
         $student->headline = $validated['headline'] ?? $student->headline;
         $student->bio = $validated['bio'] ?? $student->bio;
         $student->university = $validated['univ'] ?? $student->university;
@@ -117,11 +111,28 @@ class StudentController extends Controller
         $student->github = $validated['github'] ?? $student->github;
         $student->avatar = $validated['avatar'] ?? $student->avatar;
 
-        // حساب نسبة الإكمال
+        if ($request->has('skills')) {
+            $skillIds = [];
+            $skillsInput = $request->skills;
+
+            if (count($skillsInput) === 1 && str_contains($skillsInput[0], '-')) {
+                $skillsInput = array_map('trim', explode('-', $skillsInput[0]));
+            }
+
+            foreach ($skillsInput as $skillName) {
+                if (!empty(trim($skillName))) {
+                    $skill = Skill::firstOrCreate([
+                        'name' => trim($skillName)
+                    ]);
+                    $skillIds[] = $skill->id;
+                }
+            }
+            $student->skills()->sync($skillIds);
+        }
+
         $student->profile_completion = $this->calculateCompletion($student);
         $student->save();
 
-        // جلب البيانات المحدثة مع العلاقات
         $student->load(['education', 'experience', 'projects', 'certificates', 'skills']);
 
         return response()->json([
@@ -150,9 +161,6 @@ class StudentController extends Controller
         ]);
     }
 
-    /**
-     * حساب نسبة إكمال الملف الشخصي
-     */
     private function calculateCompletion($student)
     {
         $fields = [

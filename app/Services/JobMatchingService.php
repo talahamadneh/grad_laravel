@@ -10,13 +10,11 @@ class JobMatchingService
     public function getRecommendedJobs($student)
     {
 
-        // Skills الخاصة بالطالب
         $studentSkills = $student->skills()
             ->pluck('skills.id')
             ->toArray();
 
 
-        // جلب الوظائف المفتوحة
         $jobs = JobPost::with([
             'company',
             'skills'
