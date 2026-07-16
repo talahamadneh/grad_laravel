@@ -10,9 +10,17 @@ use App\Services\JobMatchingService;
 use App\Models\SavedJob;
 use App\Models\Application;
 use App\Models\Resume;
+use App\Services\NotificationService;
 
 class JobController extends Controller
 {
+    protected NotificationService $notificationService;
+
+    public function __construct(NotificationService $notificationService)
+    {
+        $this->notificationService = $notificationService;
+    }
+
     public function index(Request $request)
     {
         $student = Auth::user()?->student;
@@ -206,6 +214,12 @@ class JobController extends Controller
             'status' => 'Applied',
             'applied_at' => now(),
         ]);
+
+        $this->notificationService->send(
+            $job->company->user_id,
+            'New Job Application',
+            $student->user->name . ' applied for "' . $job->title . '".'
+        );
 
         return response()->json([
             'message' => 'Application submitted successfully',

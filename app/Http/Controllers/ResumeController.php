@@ -69,6 +69,7 @@ class ResumeController extends Controller
         ]);
     }
 
+
     public function store(Request $request)
     {
         $student = $request->user()->student;
@@ -118,6 +119,7 @@ class ResumeController extends Controller
         ], 201);
     }
 
+
     public function update(Request $request, $id)
     {
         $student = $request->user()->student;
@@ -161,6 +163,7 @@ class ResumeController extends Controller
         ]);
     }
 
+
     public function destroy(Request $request, $id)
     {
         $student = $request->user()->student;
@@ -182,6 +185,7 @@ class ResumeController extends Controller
         return response()->json(['message' => 'Resume deleted successfully']);
     }
 
+
     public function aiImprove(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -199,6 +203,7 @@ class ResumeController extends Controller
             'improved_text' => $improvedText
         ]);
     }
+
 
     private function simulateAI($text)
     {
@@ -222,83 +227,63 @@ class ResumeController extends Controller
         $suffix = $suffixes[array_rand($suffixes)];
 
         $text = preg_replace('/^(Results-driven |Passionate |Experienced |Dedicated |Innovative )/', '', $text);
-        $text = preg_replace('/ with a proven track record of success\.| committed to delivering excellence\.| passionate about creating impact\.| with expertise in modern technologies\.| dedicated to continuous improvement\.$/', '', $text);
+
+        $text = preg_replace(
+            '/ with a proven track record of success\.| committed to delivering excellence\.| passionate about creating impact\.| with expertise in modern technologies\.| dedicated to continuous improvement\.$/',
+            '',
+            $text
+        );
 
         return $prefix . trim($text) . $suffix;
     }
 
+
     public function generatePdf(Request $request, $id)
-{
-    $student = $request->user()->student;
+    {
+        $student = $request->user()->student;
 
-    $resume = Resume::where('id', $id)
-        ->where('student_id', $student->id)
-        ->first();
+        $resume = Resume::where('id', $id)
+            ->where('student_id', $student->id)
+            ->first();
 
-    if (!$resume) {
-        return response()->json([
-            'message' => 'Resume not found'
-        ], 404);
+        if (!$resume) {
+            return response()->json([
+                'message' => 'Resume not found'
+            ], 404);
+        }
+
+        $skills = $resume->skills ?? [];
+        $education = $resume->education ?? [];
+        $experience = $resume->experience ?? [];
+        $projects = $resume->projects ?? [];
+        $languages = $resume->languages ?? [];
+        $certificates = $resume->certificates ?? [];
+
+        $data = [
+            'resume' => $resume,
+            'student' => $student,
+            'user' => $request->user(),
+            'avatar' => $student->avatar,
+            'email' => $request->user()->email,
+            'phone' => $student->phone,
+            'location' => $student->location,
+            'linkedin' => $student->linkedin,
+            'github' => $student->github,
+            'portfolio' => $student->portfolio,
+            'gpa' => $student->gpa,
+            'skills' => $skills,
+            'education' => $education,
+            'experience' => $experience,
+            'projects' => $projects,
+            'languages' => $languages,
+            'certificates' => $certificates,
+        ];
+
+        $pdf = Pdf::loadView('resume.pdf', $data)
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->download(
+            str_replace(' ', '_', $resume->full_name) . '_resume.pdf'
+        );
     }
-
-
-   $skills = $resume->skills ?? [];
-$education = $resume->education ?? [];
-$experience = $resume->experience ?? [];
-$projects = $resume->projects ?? [];
-$languages = $resume->languages ?? [];
-$certificates = $resume->certificates ?? [];
-
-
-    $data = [
-
-        'resume' => $resume,
-
-        'student' => $student,
-
-        'user' => $request->user(),
-
-
-        'avatar' => $student->avatar,
-
-        'email' => $request->user()->email,
-
-        'phone' => $student->phone,
-
-        'location' => $student->location,
-
-
-        'linkedin' => $student->linkedin,
-
-        'github' => $student->github,
-
-        'portfolio' => $student->portfolio,
-
-        'gpa' => $student->gpa,
-
-
-        'skills' => $skills,
-
-        'education' => $education,
-
-        'experience' => $experience,
-
-        'projects' => $projects,
-
-        'languages' => $languages,
-
-        'certificates' => $certificates,
-
-    ];
-
-
-
-    $pdf = Pdf::loadView('resume.pdf', $data)
-        ->setPaper('a4', 'portrait');
-
-
-    return $pdf->download(
-        str_replace(' ', '_', $resume->full_name) . '_resume.pdf'
-    );
-}
 }
