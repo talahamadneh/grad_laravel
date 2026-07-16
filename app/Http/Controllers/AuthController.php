@@ -30,7 +30,7 @@ class AuthController extends Controller
                 $user = User::create([
                     'name' => $data['name'],
                     'email' => $data['email'],
-                    'password' => bcrypt($data['password']),
+                    'password' => \Illuminate\Support\Facades\Hash::make($data['password']),
                     'role' => $data['role'],
                 ]);
 
@@ -66,19 +66,29 @@ class AuthController extends Controller
         }
     }
 
-    // ================= LOGIN =================
+   // ================= LOGIN =================
     public function login(Request $request)
     {
+        // 1. تفعيل التحقق من الـ role القادم من الـ Frontend
         $data = $request->validate([
             'email' => 'required|email',
-            'password' => 'required'
+            'password' => 'required',
+            'role' => 'required|in:student,company,admin' 
         ]);
 
         $user = User::where('email', $data['email'])->first();
 
+        // 2. التحقق من البريد الإلكتروني وكلمة المرور
         if (!$user || !Hash::check($data['password'], $user->password)) {
             return response()->json([
                 'message' => 'Invalid credentials'
+            ], 401);
+        }
+
+        // 3. 💡 الفحص الحاسم: منع تسجيل دخول المستخدم إذا كان الدور المحدد في الواجهة مختلفاً عن دوره الفعلي
+        if (strtolower($user->role) !== strtolower($data['role'])) {
+            return response()->json([
+                'message' => 'This account is not registered as a ' . $data['role']
             ], 401);
         }
 
