@@ -15,6 +15,7 @@ use App\Http\Controllers\JobController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\AIAssistantController;
 
 
 
@@ -82,7 +83,11 @@ use App\Http\Controllers\SettingsController;
     Route::put('/settings/privacy',[SettingsController::class,'updatePrivacySettings']);
     Route::delete('/settings/account',[SettingsController::class,'deleteAccount']);
 
-
+    //AI Assistant
+    Route::post('/ai/cv-review', [AIAssistantController::class, 'reviewCV']);
+    Route::get('/ai/job-recommendations', [AIAssistantController::class, 'aiJobRecommendations']);
+    Route::post('/ai/interview/questions', [AIAssistantController::class, 'generateInterviewQuestions']);
+    Route::post('/ai/interview/submit', [AIAssistantController::class, 'submitInterviewAnswers']);
 });
 
 
