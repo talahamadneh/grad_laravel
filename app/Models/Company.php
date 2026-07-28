@@ -8,6 +8,11 @@ class Company extends Model
 {
     protected $table = 'companies';
 
+    protected $casts = [
+        'values' => 'array',
+        'benefits' => 'array',
+        'is_verified' => 'boolean',
+    ];
     protected $fillable = [
         'user_id',
         'company_name',
@@ -28,6 +33,6 @@ class Company extends Model
     public function jobPosts()
     {
         return $this->hasMany(JobPost::class);
-    }   
+    }
 
 }

@@ -16,17 +16,19 @@ use App\Http\Controllers\MessageController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\AIAssistantController;
+use App\Http\Controllers\CompanyDashboardController;
+use App\Http\Controllers\CompanyController;
 
 
 
-    Route::get('/landing/stats', [LandingController::class, 'stats']);
+Route::get('/landing/stats', [LandingController::class, 'stats']);
 
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
 
-    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 
-    Route::middleware('auth:sanctum')->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
@@ -70,24 +72,38 @@ use App\Http\Controllers\AIAssistantController;
     Route::post('/messages', [MessageController::class, 'store']);
 
     //Notifications
-    Route::get('/notifications',[NotificationController::class,'index']);
-    Route::patch('/notifications/{id}/read',[NotificationController::class,'markAsRead']);
-    Route::patch('/notifications/read-all',[NotificationController::class,'markAllAsRead']);
-    Route::delete('/notifications/{id}',[NotificationController::class,'destroy']);
-    
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::patch('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::patch('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+
     //Settings
-    Route::put('/settings/password',[SettingsController::class,'changePassword']);
-    Route::get('/settings/notifications',[SettingsController::class,'getNotificationSettings']);
-    Route::put('/settings/notifications',[SettingsController::class,'updateNotificationSettings']);
-    Route::get('/settings/privacy',[SettingsController::class,'getPrivacySettings']);
-    Route::put('/settings/privacy',[SettingsController::class,'updatePrivacySettings']);
-    Route::delete('/settings/account',[SettingsController::class,'deleteAccount']);
+    Route::put('/settings/password', [SettingsController::class, 'changePassword']);
+    Route::get('/settings/notifications', [SettingsController::class, 'getNotificationSettings']);
+    Route::put('/settings/notifications', [SettingsController::class, 'updateNotificationSettings']);
+    Route::get('/settings/privacy', [SettingsController::class, 'getPrivacySettings']);
+    Route::put('/settings/privacy', [SettingsController::class, 'updatePrivacySettings']);
+    Route::delete('/settings/account', [SettingsController::class, 'deleteAccount']);
 
     //AI Assistant
     Route::post('/ai/cv-review', [AIAssistantController::class, 'reviewCV']);
     Route::get('/ai/job-recommendations', [AIAssistantController::class, 'aiJobRecommendations']);
     Route::post('/ai/interview/questions', [AIAssistantController::class, 'generateInterviewQuestions']);
     Route::post('/ai/interview/submit', [AIAssistantController::class, 'submitInterviewAnswers']);
+
+    //Company Dashboard
+    Route::get('/company/dashboard', [CompanyDashboardController::class, 'index']);
+
+    //Company Profile
+    Route::get('/company/profile', [CompanyController::class, 'profile']);
+    Route::put('/company/profile', [CompanyController::class, 'update']);
+    Route::get('/company/jobs', [CompanyController::class, 'jobs']);
+
+    //Company Job Posts
+    Route::post('/company/jobs', [CompanyController::class, 'storeJob']);
+    Route::post('/company/jobs/generate-description', [CompanyController::class, 'generateJobDescription']);
+
+
 });
 
 

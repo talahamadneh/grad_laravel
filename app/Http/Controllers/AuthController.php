@@ -20,7 +20,8 @@ class AuthController extends Controller
             'name' => 'required',
             'email' => 'required|email|unique:users',
             'password' => 'required|min:6',
-            'role' => 'required|in:student,company'
+            'role' => 'required|in:student,company',
+            'industry' => 'nullable|string|max:255',
         ]);
 
         try {
@@ -44,7 +45,9 @@ class AuthController extends Controller
 
                     Company::create([
                         'user_id' => $user->id,
-                        'company_name' => $data['name']
+                        'company_name' => $data['name'],
+                        'industry' => $data['industry'] ?? null,
+                        'approval_status' => 'Pending',
                     ]);
 
                 }
@@ -82,6 +85,17 @@ class AuthController extends Controller
             ], 401);
         }
 
+        //  فقط الشركة بتحتاج موافقة أدمن، الطالب بدخل مباشرة
+        if ($user->role === 'Company') {
+            $company = $user->company;
+
+            if ($company && $company->approval_status !== 'Approved') {
+                return response()->json([
+                    'message' => 'Your company account is pending approval. Please wait for admin confirmation.'
+                ], 403);
+            }
+        }
+
         $token = $user->createToken('api-token')->plainTextToken;
 
         return response()->json([
@@ -115,7 +129,7 @@ class AuthController extends Controller
         ], 400);
     }
 
-  
+
     public function user(Request $request)
     {
         return response()->json($request->user());

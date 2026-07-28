@@ -12,18 +12,25 @@ class JobPost extends Model
     protected $fillable = [
         'company_id',
         'title',
+        'department',
         'description',
         'about',
         'responsibilities',
         'requirements',
+        'benefits',
         'salary',
         'employment_type',
+        'level',
         'work_mode',
         'location',
         'deadline',
         'vacancies',
         'status',
         'required_major'
+    ];
+
+    protected $casts = [
+        'benefits' => 'array',
     ];
 
     public function company()
