@@ -13,14 +13,14 @@ use Exception;
 
 class AuthController extends Controller
 {
-    // ================= REGISTER =================
     public function register(Request $request)
     {
         $data = $request->validate([
             'name' => 'required',
             'email' => 'required|email|unique:users',
             'password' => 'required|min:6',
-            'role' => 'required|in:student,company'
+            'role' => 'required|in:student,company',
+            'industry' => 'nullable|string|max:255',
         ]);
 
         try {
@@ -30,7 +30,7 @@ class AuthController extends Controller
                 $user = User::create([
                     'name' => $data['name'],
                     'email' => $data['email'],
-                    'password' => \Illuminate\Support\Facades\Hash::make($data['password']),
+                    'password' => Hash::make($data['password']),
                     'role' => $data['role'],
                 ]);
 
@@ -44,7 +44,9 @@ class AuthController extends Controller
 
                     Company::create([
                         'user_id' => $user->id,
-                        'company_name' => $data['name']
+                        'company_name' => $data['name'],
+                        'industry' => $data['industry'] ?? null,
+                        'approval_status' => 'Pending',
                     ]);
 
                 }
@@ -66,30 +68,36 @@ class AuthController extends Controller
         }
     }
 
-   // ================= LOGIN =================
     public function login(Request $request)
     {
-        // 1. تفعيل التحقق من الـ role القادم من الـ Frontend
         $data = $request->validate([
             'email' => 'required|email',
             'password' => 'required',
-            'role' => 'required|in:student,company,admin' 
+            'role' => 'required|in:student,company,admin'
         ]);
 
         $user = User::where('email', $data['email'])->first();
 
-        // 2. التحقق من البريد الإلكتروني وكلمة المرور
         if (!$user || !Hash::check($data['password'], $user->password)) {
             return response()->json([
                 'message' => 'Invalid credentials'
             ], 401);
         }
 
-        // 3. 💡 الفحص الحاسم: منع تسجيل دخول المستخدم إذا كان الدور المحدد في الواجهة مختلفاً عن دوره الفعلي
         if (strtolower($user->role) !== strtolower($data['role'])) {
             return response()->json([
                 'message' => 'This account is not registered as a ' . $data['role']
             ], 401);
+        }
+
+        if (strtolower($user->role) === 'company') {
+            $company = $user->company;
+
+            if ($company && $company->approval_status !== 'Approved') {
+                return response()->json([
+                    'message' => 'Your company account is pending approval. Please wait for admin confirmation.'
+                ], 403);
+            }
         }
 
         $token = $user->createToken('api-token')->plainTextToken;
@@ -101,7 +109,6 @@ class AuthController extends Controller
         ]);
     }
 
-    // ================= FORGOT PASSWORD =================
     public function forgotPassword(Request $request)
     {
         $request->validate([
@@ -125,7 +132,6 @@ class AuthController extends Controller
         ], 400);
     }
 
-  
     public function user(Request $request)
     {
         return response()->json($request->user());
