@@ -101,12 +101,20 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('api-token')->plainTextToken;
+$token = $user->createToken('api-token')->plainTextToken;
 
-        return response()->json([
-            'user' => $user,
-            'token' => $token,
-            'role' => $user->role
-        ]);
+$user->load('student');
+
+return response()->json([
+    'user' => [
+        'name' => $user->name,
+        'email' => $user->email,
+        'role' => $user->role,
+        'phone' => $user->student?->phone,
+        'location' => $user->student?->location,
+    ],
+    'token' => $token,
+]);
     }
 
     public function forgotPassword(Request $request)
