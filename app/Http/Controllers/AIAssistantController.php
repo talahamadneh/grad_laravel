@@ -5,12 +5,13 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Services\GeminiService;
 use App\Models\Resume;
+use App\Models\ResumeAnalysis;
 use Illuminate\Support\Facades\Auth;
 use App\Services\JobMatchingService;
 
 class AIAssistantController extends Controller
 {
-    public function reviewCV(Request $request, GeminiService $gemini)
+   public function reviewCV(Request $request, GeminiService $gemini)
     {
         $student = Auth::user()->student;
 
@@ -53,6 +54,18 @@ Education: " . json_encode($resume->education) . "
                     'raw' => $result
                 ], 500);
             }
+
+            ResumeAnalysis::updateOrCreate(
+                [
+                    'resume_id' => $resume->id
+                ],
+                [
+                    'cv_score' => $parsed['overall_score'] ?? null,
+                    'strengths' => $parsed['strengths'] ?? [],
+                    'weaknesses' => $parsed['weaknesses'] ?? [],
+                    'recommendations' => $parsed['suggestions'] ?? [],
+                ]
+            );
 
             return response()->json($parsed);
 

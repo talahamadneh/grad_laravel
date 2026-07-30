@@ -103,7 +103,7 @@ class AuthController extends Controller
         $token = $user->createToken('api-token')->plainTextToken;
 $token = $user->createToken('api-token')->plainTextToken;
 
-$user->load('student');
+$user->load('student','company');
 
 return response()->json([
     'user' => [
@@ -112,6 +112,8 @@ return response()->json([
         'role' => $user->role,
         'phone' => $user->student?->phone,
         'location' => $user->student?->location,
+         'student' => $user->student,
+        'company' => $user->company,
     ],
     'token' => $token,
 ]);

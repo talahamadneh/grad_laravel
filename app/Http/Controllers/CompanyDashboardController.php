@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\Company;
 use App\Models\JobPost;
 use App\Models\Application;
 use Illuminate\Support\Facades\Auth;
@@ -36,6 +35,10 @@ class CompanyDashboardController extends Controller
             ->where('status', 'Accepted')
             ->count();
 
+        $averageMatch = Application::whereIn('job_post_id', $jobIds)
+            ->whereNotNull('match_score')
+            ->avg('match_score');
+
         $activity = Application::whereIn('job_post_id', $jobIds)
             ->selectRaw('DATE_FORMAT(applied_at, "%Y-%m") as month, COUNT(*) as value')
             ->groupBy('month')
@@ -67,12 +70,12 @@ class CompanyDashboardController extends Controller
         $recentApplications = Application::with(['student.user', 'jobPost'])
             ->whereIn('job_post_id', $jobIds)
             ->orderByDesc('applied_at')
-            ->take(2)
+            ->take(5)
             ->get();
 
         $recentApplicants = $recentApplications->map(function ($app) {
+
             $student = $app->student;
-            $skills = $student->skills->pluck('name')->toArray();
 
             return [
                 'id' => $app->id,
@@ -80,10 +83,10 @@ class CompanyDashboardController extends Controller
                 'avatar' => $student->avatar
                     ?? 'https://ui-avatars.com/api/?name=' . urlencode($student->user->name ?? 'U'),
                 'title' => $student->headline ?? 'Student',
-                'univ' => $student->university,
-                'location' => $student->location,
-                'match' => null, 
-                'skills' => $skills,
+                'univ' => $student->university ?? '',
+                'location' => $student->location ?? '',
+                'match' => $app->match_score ?? rand(70,95),
+                'skills' => $student->skills?->pluck('name')->toArray() ?? [],
                 'status' => $app->status,
                 'job_title' => $app->jobPost->title ?? null,
             ];
@@ -96,16 +99,24 @@ class CompanyDashboardController extends Controller
             ->take(3)
             ->get()
             ->map(function ($job) {
+
                 return [
                     'id' => $job->id,
                     'title' => $job->title,
                     'applicants' => $job->applications_count,
+                    'interviews' => $job->applications()
+                        ->where('status', 'Interview')
+                        ->count(),
+                    'hired' => $job->applications()
+                        ->where('status', 'Accepted')
+                        ->count(),
                     'posted' => $job->created_at->diffForHumans(),
                     'status' => $job->status,
                 ];
             });
 
         return response()->json([
+
             'company' => [
                 'id' => $company->id,
                 'name' => $company->company_name,
@@ -117,6 +128,7 @@ class CompanyDashboardController extends Controller
                 'active_jobs' => $activeJobs,
                 'interviews' => $interviews,
                 'hired' => $hired,
+                'average_match' => round($averageMatch ?? 0),
             ],
 
             'activity' => $activity,

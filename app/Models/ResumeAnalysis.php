@@ -18,8 +18,17 @@ class ResumeAnalysis extends Model
         'recommendations',
     ];
 
+    protected $casts = [
+        'cv_score' => 'integer',
+        'ats_score' => 'integer',
+        'strengths' => 'array',
+        'weaknesses' => 'array',
+        'missing_skills' => 'array',
+        'recommendations' => 'array',
+    ];
+
     public function resume()
     {
-        return $this->belongsTo(Resume::class);
+        return $this->belongsTo(Resume::class, 'resume_id');
     }
 }

@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class Application extends Model
 {
-    protected $table = 'applications';
-    protected $primaryKey = 'id';
-
     use HasFactory;
+
+    protected $table = 'applications';
+
+    protected $primaryKey = 'id';
 
     protected $fillable = [
         'student_id',
@@ -19,10 +20,12 @@ class Application extends Model
         'applied_at',
         'status',
         'match_score',
+        'reviewed_at',
     ];
 
     protected $casts = [
         'applied_at' => 'datetime',
+        'reviewed_at' => 'datetime',
         'match_score' => 'decimal:2',
     ];
 
@@ -35,6 +38,7 @@ class Application extends Model
     {
         return $this->belongsTo(JobPost::class);
     }
+
     public function resume()
     {
         return $this->belongsTo(Resume::class);
