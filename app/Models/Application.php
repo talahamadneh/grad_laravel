@@ -44,4 +44,15 @@ class Application extends Model
     {
         return $this->hasOne(Interview::class);
     }
+
+    public function notes()
+    {
+        return $this->hasMany(CompanyNote::class);
+    }
+
+    public function timeline()
+    {
+        return $this->hasMany(ApplicationStatusHistory::class)
+            ->orderBy('changed_at');
+    }
 }
