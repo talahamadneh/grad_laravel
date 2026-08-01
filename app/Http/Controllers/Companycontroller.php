@@ -7,6 +7,8 @@ use App\Models\Company;
 use App\Models\JobPost;
 use App\Models\Skill;
 use App\Models\Application;
+use App\Models\ApplicationStatusHistory;
+use App\Models\Interview;
 use Illuminate\Support\Facades\Validator;
 use App\Services\GeminiService;
 
@@ -954,5 +956,85 @@ Provide a short professional hiring summary.
         return response()->json([
             'message' => 'Job deleted successfully'
         ]);
+    }
+
+    public function shortlist(Application $application)
+    {
+        $job = $application->jobPost;
+
+        if ($job->company_id != auth()->user()->company->id) {
+            return response()->json([
+                'message' => 'Unauthorized.'
+            ], 403);
+        }
+
+        $application->update([
+            'status' => 'Shortlisted'
+        ]);
+
+        ApplicationStatusHistory::create([
+            'application_id' => $application->id,
+            'status' => 'Shortlisted',
+            'changed_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Candidate shortlisted successfully.',
+            'application' => $application
+        ]);
+    }
+
+    public function getShortlisted(JobPost $job)
+    {
+        $applications = $job->applications()
+            ->where('status', 'Shortlisted')
+            ->with(['student', 'resume'])
+            ->get();
+
+        return response()->json($applications);
+    }
+
+
+    public function scheduleInterview(Request $request)
+    {
+        $request->validate([
+            'application_id' => 'required|exists:applications,id',
+            'interview_date' => 'required|date|after:now',
+            'type' => 'required|in:Online,Onsite',
+            'meeting_link' => 'nullable|string',
+            'location' => 'nullable|string',
+        ]);
+
+        $application = Application::findOrFail($request->application_id);
+
+        if ($application->jobPost->company_id != auth()->user()->company->id) {
+            return response()->json([
+                'message' => 'Unauthorized.'
+            ], 403);
+        }
+
+        $interview = Interview::create([
+            'application_id' => $application->id,
+            'interview_date' => $request->interview_date,
+            'type' => $request->type,
+            'meeting_link' => $request->meeting_link,
+            'location' => $request->location,
+            'status' => 'Scheduled',
+        ]);
+
+        $application->update([
+            'status' => 'Interview'
+        ]);
+
+        ApplicationStatusHistory::create([
+            'application_id' => $application->id,
+            'status' => 'Interview',
+            'changed_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Interview scheduled successfully.',
+            'interview' => $interview
+        ], 201);
     }
 }

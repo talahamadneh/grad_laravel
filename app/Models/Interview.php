@@ -13,6 +13,7 @@ class Interview extends Model
         'interview_date',
         'type',
         'meeting_link',
+        'location',
         'status',
     ];
 
