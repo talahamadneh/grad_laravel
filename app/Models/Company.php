@@ -35,4 +35,9 @@ class Company extends Model
         return $this->hasMany(JobPost::class);
     }
 
+    public function notes()
+    {
+        return $this->hasMany(CompanyNote::class);
+    }
+
 }

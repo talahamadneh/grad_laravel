@@ -38,16 +38,16 @@ class Resume extends Model
 
     public function student()
     {
-        return $this->belongsTo(Student::class,'student_id');
+        return $this->belongsTo(Student::class, 'student_id');
     }
     public function analysis()
-{
-    return $this->hasOne(ResumeAnalysis::class,'resume_id');
-}
+    {
+        return $this->hasOne(ResumeAnalysis::class, 'resume_id');
+    }
 
-public function applications()
-{
-    return $this->hasMany(Application::class);
-}
+    public function applications()
+    {
+        return $this->hasMany(Application::class);
+    }
 
 }

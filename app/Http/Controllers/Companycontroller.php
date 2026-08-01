@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Company;
 use App\Models\JobPost;
 use App\Models\Skill;
+use App\Models\Application;
 use Illuminate\Support\Facades\Validator;
 use App\Services\GeminiService;
 
@@ -184,7 +185,7 @@ class CompanyController extends Controller
             'status' => 'Open',
         ]);
 
-       
+
         if (!empty($validated['skills'])) {
             $skillIds = [];
             foreach ($validated['skills'] as $skillName) {
@@ -234,5 +235,467 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    public function applicants(Request $request)
+    {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $applications = Application::with([
+            'student.user',
+            'student.skills',
+            'jobPost'
+        ])
+            ->whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->latest()
+            ->get();
+
+        $applicants = $applications->map(function ($application) {
+
+            return [
+
+                'id' => $application->id,
+
+                'name' => $application->student->user->name,
+
+                'title' => $application->student->headline,
+
+                'university' => $application->student->university,
+
+                'location' => $application->student->location,
+
+                'avatar' => $application->student->avatar,
+
+                'job_id' => $application->jobPost->id,
+
+                'job' => $application->jobPost->title,
+
+                'status' => $application->status,
+
+                'match' => (int) $application->match_score,
+
+                'skills' => $application->student->skills
+                    ->pluck('name')
+                    ->values(),
+
+                'email' => $application->student->user->email,
+
+                'applied_at' => optional($application->applied_at)
+                    ->format('Y-m-d'),
+
+            ];
+        });
+
+        return response()->json($applicants);
+    }
+
+    public function applicantDetails(Request $request, $id)
+    {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $application = Application::with([
+            'student.user',
+            'student.skills',
+            'student.education',
+            'student.experience',
+            'student.projects',
+            'student.certificates',
+            'resume',
+            'notes',
+            'timeline'
+        ])
+            ->where('id', $id)
+            ->whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->first();
+
+        if (!$application) {
+            return response()->json([
+                'message' => 'Applicant not found'
+            ], 404);
+        }
+
+        $student = $application->student;
+        return response()->json([
+            'application_id' => $application->id,
+
+            'student' => [
+                'name' => $student->user->name,
+                'email' => $student->user->email,
+                'phone' => $student->phone,
+                'avatar' => $student->avatar,
+                'headline' => $student->headline,
+                'university' => $student->university,
+                'major' => $student->major,
+                'gpa' => $student->gpa,
+                'location' => $student->location,
+                'portfolio' => $student->portfolio,
+                'linkedin' => $student->linkedin,
+                'github' => $student->github,
+                'bio' => $student->bio,
+            ],
+            'skills' => $student->skills
+                ->pluck('name')
+                ->values(),
+            'education' => $student->education,
+            'experience' => $student->experience,
+            'projects' => $student->projects,
+            'certificates' => $student->certificates,
+            'resume' => $application->resume ? [
+                'id' => $application->resume->id,
+                'title' => $application->resume->title,
+                'template' => $application->resume->template,
+                'file_path' => $application->resume->file_path,
+                'updated_at' => $application->resume->updated_at,
+            ] : null,
+            'match' => [
+                'percentage' => $application->match_score,
+                'reasons' => $this->generateMatchReasons($application)
+            ],
+            'notes' => $application->notes,
+            'timeline' => $application->timeline,
+        ]);
+    }
+
+    private function generateMatchReasons($application)
+    {
+        $reasons = [];
+        if ($application->match_score >= 80) {
+            $reasons[] = "Strong skills match";
+        }
+
+        if (
+            $application->student->major ==
+            $application->jobPost->required_major
+        ) {
+            $reasons[] = "Major matches job requirements";
+        }
+        if (
+            $application->student->location ==
+            $application->jobPost->location
+        ) {
+            $reasons[] = "Same location";
+        }
+        if (
+            $application->student->preferred_employment_type ==
+            $application->jobPost->employment_type
+        ) {
+            $reasons[] = "Employment type matches";
+        }
+        return $reasons;
+    }
+
+    public function aiCandidateSummary(Request $request, $id, GeminiService $gemini)
+    {
+
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+
+        if (!$company) {
+
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+
+        }
+
+
+
+        $application = Application::with([
+
+            'student.user',
+            'student.skills',
+            'student.education',
+            'student.experience',
+            'student.projects',
+            'jobPost'
+
+        ])
+
+            ->where('id', $id)
+
+            ->whereHas('jobPost', function ($query) use ($company) {
+
+                $query->where('company_id', $company->id);
+
+            })
+
+            ->first();
+
+
+
+        if (!$application) {
+
+            return response()->json([
+                'message' => 'Applicant not found'
+            ], 404);
+
+        }
+
+
+        $student = $application->student;
+        $skills = $student->skills
+            ->pluck('name')
+            ->implode(', ');
+
+        $experience = $student->experience
+            ->map(function ($exp) {
+
+                return $exp->position .
+                    " at " .
+                    $exp->company;
+
+            })
+            ->implode(', ');
+        $projects = $student->projects
+            ->pluck('title')
+            ->implode(', ');
+
+        $prompt = "
+
+You are an AI recruitment assistant.
+
+Analyze this candidate for a job application.
+
+Candidate Name:
+{$student->user->name}
+
+Headline:
+{$student->headline}
+
+Major:
+{$student->major}
+
+GPA:
+{$student->gpa}
+
+Bio:
+{$student->bio}
+
+Skills:
+{$skills}
+
+Experience:
+{$experience}
+
+Projects:
+{$projects}
+
+Applied Job:
+{$application->jobPost->title}
+
+Write a professional candidate evaluation.
+
+Include:
+- Main strengths
+- Technical suitability
+- Possible concerns
+- Recommendation for interview
+
+Keep it concise (one paragraph).
+Do not use markdown.
+Return a short professional hiring summary.
+
+Return plain text only.
+Do not use markdown symbols.";
+
+        try {
+
+            $summary = $gemini->generate($prompt);
+            return response()->json([
+                'candidate' => $student->user->name,
+                'summary' => $summary
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'AI service error',
+                'error' => $e->getMessage()
+            ], 500);
+
+        }
+
+    }
+
+    public function fullApplicantDetails(Request $request, $id, GeminiService $gemini)
+    {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+
+        $application = Application::with([
+            'student.user',
+            'student.skills',
+            'student.education',
+            'student.experience',
+            'student.projects',
+            'student.certificates',
+            'resume',
+            'notes',
+            'timeline',
+            'jobPost'
+        ])
+            ->where('id', $id)
+            ->whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->first();
+
+
+        if (!$application) {
+            return response()->json([
+                'message' => 'Applicant not found'
+            ], 404);
+        }
+
+
+        $student = $application->student;
+
+
+
+        $skills = $student->skills
+            ->pluck('name')
+            ->implode(', ');
+
+
+        $projects = $student->projects
+            ->pluck('title')
+            ->implode(', ');
+
+
+        $prompt = "
+Analyze this job candidate briefly.
+
+Name:
+{$student->user->name}
+
+Headline:
+{$student->headline}
+
+Major:
+{$student->major}
+
+GPA:
+{$student->gpa}
+
+Skills:
+{$skills}
+
+Projects:
+{$projects}
+
+Applied Job:
+{$application->jobPost->title}
+
+Provide a short professional hiring summary.
+";
+
+
+        try {
+
+            $aiSummary = $gemini->generate($prompt);
+
+        } catch (\Exception $e) {
+
+            $aiSummary = "AI summary unavailable";
+
+        }
+
+
+
+        return response()->json([
+
+
+            'application_id' => $application->id,
+
+
+            'student' => [
+
+                'name' => $student->user->name,
+
+                'email' => $student->user->email,
+
+                'phone' => $student->phone,
+
+                'avatar' => $student->avatar,
+
+                'headline' => $student->headline,
+
+                'university' => $student->university,
+
+                'major' => $student->major,
+
+                'gpa' => $student->gpa,
+
+                'location' => $student->location,
+
+                'bio' => $student->bio,
+
+                'portfolio' => $student->portfolio,
+
+                'linkedin' => $student->linkedin,
+
+                'github' => $student->github,
+
+            ],
+
+
+            'skills' => $student->skills
+                ->pluck('name')
+                ->values(),
+
+
+
+            'resume' => $application->resume,
+
+
+            'match' => [
+
+                'percentage' => $application->match_score,
+
+                'reasons' => $this->generateMatchReasons($application)
+
+            ],
+
+
+
+            'notes' => $application->notes,
+
+
+            'timeline' => $application->timeline,
+
+
+            'ai_summary' => $aiSummary,
+
+
+            'job' => [
+
+                'id' => $application->jobPost->id,
+
+                'title' => $application->jobPost->title
+
+            ]
+
+        ]);
+
     }
 }

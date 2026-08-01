@@ -31,7 +31,7 @@ class AuthController extends Controller
                     'name' => $data['name'],
                     'email' => $data['email'],
                     'password' => Hash::make($data['password']),
-                    'role' => $data['role'],
+                    'role' => ucfirst($data['role']),
                 ]);
 
                 if ($data['role'] === 'student') {
@@ -101,22 +101,21 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('api-token')->plainTextToken;
-$token = $user->createToken('api-token')->plainTextToken;
 
-$user->load('student','company');
+        $user->load('student', 'company');
 
-return response()->json([
-    'user' => [
-        'name' => $user->name,
-        'email' => $user->email,
-        'role' => $user->role,
-        'phone' => $user->student?->phone,
-        'location' => $user->student?->location,
-         'student' => $user->student,
-        'company' => $user->company,
-    ],
-    'token' => $token,
-]);
+        return response()->json([
+            'user' => [
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+                'phone' => $user->student?->phone,
+                'location' => $user->student?->location,
+                'student' => $user->student,
+                'company' => $user->company,
+            ],
+            'token' => $token,
+        ]);
     }
 
     public function forgotPassword(Request $request)

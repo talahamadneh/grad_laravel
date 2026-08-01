@@ -18,6 +18,8 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\AIAssistantController;
 use App\Http\Controllers\CompanyDashboardController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\CompanyNoteController;
+use App\Http\Controllers\ApplicationStatusController;
 
 
 
@@ -104,7 +106,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/jobs', [CompanyController::class, 'storeJob']);
     Route::post('/company/jobs/generate-description', [CompanyController::class, 'generateJobDescription']);
 
-
+    //Company Applicants
+    Route::get('/company/applicants', [CompanyController::class, 'applicants']);
+    //Applicants Details
+    Route::get('/company/applicants/{id}', [CompanyController::class, 'applicantDetails']);
+    //Company Notes
+    Route::get('/company/applicants/{applicationId}/notes', [CompanyNoteController::class, 'index']);
+    Route::post('/company/applicants/{applicationId}/notes', [CompanyNoteController::class, 'store']);
+    Route::put('/company/notes/{id}', [CompanyNoteController::class, 'update']);
+    Route::delete('/company/notes/{id}', [CompanyNoteController::class, 'destroy']);
+    //Application Status
+    Route::put('/company/applicants/{applicationId}/status', [ApplicationStatusController::class, 'update']);
+    Route::get('/company/applicants/{applicationId}/timeline', [ApplicationStatusController::class, 'timeline']);
+    //Ai Summary
+    Route::get('/company/applicants/{id}/ai-summary',[CompanyController::class,'aiCandidateSummary']);
+    // Complete Applicant Details
+    Route::get('/company/applicants/{id}/details',[CompanyController::class,'fullApplicantDetails']);
 });
 
 
