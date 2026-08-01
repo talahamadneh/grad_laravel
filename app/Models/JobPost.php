@@ -45,7 +45,7 @@ class JobPost extends Model
 
     public function applications()
     {
-        return $this->hasMany(Application::class);
+        return $this->hasMany(Application::class, 'job_post_id');
     }
 
     public function savedByStudents()

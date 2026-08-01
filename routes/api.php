@@ -129,7 +129,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/company/jobs/{id}/edit', [CompanyController::class, 'editJob']);
     Route::put('/company/jobs/{id}', [CompanyController::class, 'updateJob']);
 
-
+    //delete job
+    Route::delete('/company/jobs/{id}', [CompanyController::class, 'destroyJob']);
 });
 
 

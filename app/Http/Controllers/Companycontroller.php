@@ -921,4 +921,38 @@ Provide a short professional hiring summary.
             'job' => $job->load('skills')
         ]);
     }
+
+    public function destroyJob(Request $request, $id)
+    {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $job = JobPost::where('id', $id)
+            ->where('company_id', $company->id)
+            ->first();
+
+        if (!$job) {
+            return response()->json([
+                'message' => 'Job not found'
+            ], 404);
+        }
+
+        // لا تسمح بالحذف إذا عليها متقدمين
+        if ($job->applications()->exists()) {
+            return response()->json([
+                'message' => 'Cannot delete a job that has applicants.'
+            ], 422);
+        }
+
+        $job->delete();
+
+        return response()->json([
+            'message' => 'Job deleted successfully'
+        ]);
+    }
 }
