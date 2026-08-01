@@ -12,7 +12,7 @@ class JobPostSeeder extends Seeder
         JobPost::insert([
 
             [
-                'company_id' => 1,
+                'company_id' => 9,
                 'title' => 'Laravel Backend Developer',
                 'description' => 'Develop Laravel APIs and backend systems.',
                 'about' => 'We need a backend developer to build secure and scalable Laravel applications.',
@@ -30,7 +30,7 @@ class JobPostSeeder extends Seeder
             ],
 
             [
-                'company_id' => 2,
+                'company_id' => 11,
                 'title' => 'React Frontend Developer',
                 'description' => 'Build modern React web applications.',
                 'about' => 'Join our frontend team to create modern user interfaces.',
@@ -48,7 +48,7 @@ class JobPostSeeder extends Seeder
             ],
 
             [
-                'company_id' => 3,
+                'company_id' => 12,
                 'title' => 'Software Engineering Intern',
                 'description' => 'Internship opportunity for software engineering students.',
                 'about' => 'Training opportunity for students to gain practical software experience.',
@@ -66,7 +66,7 @@ class JobPostSeeder extends Seeder
             ],
 
             [
-                'company_id' => 4,
+                'company_id' => 13,
                 'title' => 'Mobile Developer Contract',
                 'description' => 'Develop React Native mobile applications.',
                 'about' => 'Looking for a mobile developer to build cross-platform applications.',
@@ -84,7 +84,7 @@ class JobPostSeeder extends Seeder
             ],
 
             [
-                'company_id' => 5,
+                'company_id' => 6,
                 'title' => 'UI/UX Designer',
                 'description' => 'Design user interfaces and experiences.',
                 'about' => 'Create attractive and user-friendly designs.',

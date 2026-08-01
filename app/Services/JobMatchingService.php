@@ -27,7 +27,6 @@ class JobMatchingService
         $recommendedJobs = $jobs->map(function ($job) use ($student, $studentSkills, $savedIds) {
 
             $score = 0;
-
             $reasons = [];
 
             $jobSkills = $job->skills
@@ -110,7 +109,6 @@ class JobMatchingService
 
 
             return [
-
                 "job_id" => $job->id,
 
                 "title" => $job->title,
@@ -160,8 +158,6 @@ class JobMatchingService
 
     public function calculateMatch($student, $job)
     {
-        $score = 0;
-
         $studentSkills = $student->skills()
             ->pluck('skills.id')
             ->toArray();
@@ -170,18 +166,29 @@ class JobMatchingService
             ->pluck('id')
             ->toArray();
 
-
         $matchedSkillIds = array_intersect(
             $studentSkills,
             $jobSkills
         );
 
+        $matchingSkills = $job->skills
+            ->whereIn('id', $matchedSkillIds)
+            ->pluck('name')
+            ->values()
+            ->toArray();
+
+        $missingSkills = $job->skills
+            ->whereNotIn('id', $studentSkills)
+            ->pluck('name')
+            ->values()
+            ->toArray();
+
+        $score = 0;
+
 
         if (count($jobSkills) > 0) {
-
             $score +=
                 (count($matchedSkillIds) / count($jobSkills)) * 80;
-
         }
 
 
@@ -215,6 +222,11 @@ class JobMatchingService
         }
 
 
-        return round($score);
+        return [
+            "match" => round($score),
+            "matching_skills" => $matchingSkills,
+            "missing_skills" => $missingSkills
+        ];
     }
 }
+

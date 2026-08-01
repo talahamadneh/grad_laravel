@@ -9,110 +9,126 @@ use App\Models\CompanyNote;
 
 class CompanyNoteController extends Controller
 {
-    // Get notes for specific applicant
     public function index(Request $request, $applicationId)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
+
         if (!$company) {
             return response()->json([
                 'message' => 'Company profile not found'
             ], 404);
         }
+
         $application = Application::where('id', $applicationId)
-            ->whereHas('jobPost', function($query) use ($company){
+            ->whereHas('jobPost', function ($query) use ($company) {
                 $query->where('company_id', $company->id);
             })
             ->first();
 
-        if(!$application){
+        if (!$application) {
             return response()->json([
-                'message'=>'Applicant not found'
-            ],404);
+                'message' => 'Applicant not found'
+            ], 404);
         }
-        $notes = CompanyNote::where('application_id',$applicationId)
+
+        $notes = CompanyNote::where('application_id', $applicationId)
+            ->where('company_id', $company->id)
             ->latest()
             ->get();
+
         return response()->json($notes);
     }
 
-    // Add note    
     public function store(Request $request, $applicationId)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
+
         if (!$company) {
             return response()->json([
-                'message'=>'Company profile not found'
-            ],404);
+                'message' => 'Company profile not found'
+            ], 404);
         }
 
         $request->validate([
-            'note'=>'required|string'
+            'note' => 'required|string'
         ]);
 
-        $application = Application::where('id',$applicationId)
-            ->whereHas('jobPost',function($query) use ($company){
-                $query->where('company_id',$company->id);
+        $application = Application::where('id', $applicationId)
+            ->whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
             })
             ->first();
 
-        if(!$application){
+        if (!$application) {
             return response()->json([
-                'message'=>'Applicant not found'
-            ],404);
+                'message' => 'Applicant not found'
+            ], 404);
         }
 
         $note = CompanyNote::create([
-            'application_id'=>$application->id,
-            'company_id'=>$company->id,
-            'note'=>$request->note
+            'application_id' => $application->id,
+            'company_id' => $company->id,
+            'note' => $request->note
         ]);
 
-        return response()->json([
-            'message'=>'Note added successfully',
-            'note'=>$note
-        ],201);
+        return response()->json($note, 201);
     }
 
-    // Update note
-    public function update(Request $request,$id)
+    public function update(Request $request, $id)
     {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
         $request->validate([
-            'note'=>'required|string'
+            'note' => 'required|string'
         ]);
 
-        $note = CompanyNote::find($id);
+        $note = CompanyNote::where('id', $id)
+            ->where('company_id', $company->id)
+            ->first();
 
-        if(!$note){
+        if (!$note) {
             return response()->json([
-                'message'=>'Note not found'
-            ],404);
+                'message' => 'Note not found'
+            ], 404);
         }
 
         $note->update([
-            'note'=>$request->note
+            'note' => $request->note
         ]);
 
-        return response()->json([
-            'message'=>'Note updated successfully',
-            'note'=>$note
-        ]);
-
+        return response()->json($note);
     }
 
-    // Delete note
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        $note = CompanyNote::find($id);
-        if(!$note){
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
             return response()->json([
-                'message'=>'Note not found'
-            ],404);
+                'message' => 'Company profile not found'
+            ], 404);
         }
+
+        $note = CompanyNote::where('id', $id)
+            ->where('company_id', $company->id)
+            ->first();
+
+        if (!$note) {
+            return response()->json([
+                'message' => 'Note not found'
+            ], 404);
+        }
+
         $note->delete();
+
         return response()->json([
-            'message'=>'Note deleted successfully'
+            'message' => 'Note deleted successfully'
         ]);
-
     }
-
 }

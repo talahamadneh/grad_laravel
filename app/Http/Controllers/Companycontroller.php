@@ -9,10 +9,10 @@ use App\Models\Skill;
 use App\Models\Application;
 use Illuminate\Support\Facades\Validator;
 use App\Services\GeminiService;
+use App\Services\JobMatchingService;
 
 class CompanyController extends Controller
 {
-
     public function jobs(Request $request)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
@@ -42,7 +42,6 @@ class CompanyController extends Controller
         return response()->json($jobs);
     }
 
-
     public function profile(Request $request)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
@@ -55,7 +54,6 @@ class CompanyController extends Controller
 
         return response()->json($this->formatCompany($company));
     }
-
 
     public function update(Request $request)
     {
@@ -114,7 +112,6 @@ class CompanyController extends Controller
             'company' => $this->formatCompany($company),
         ]);
     }
-
 
     private function formatCompany(Company $company): array
     {
@@ -185,7 +182,6 @@ class CompanyController extends Controller
             'status' => 'Open',
         ]);
 
-
         if (!empty($validated['skills'])) {
             $skillIds = [];
             foreach ($validated['skills'] as $skillName) {
@@ -237,7 +233,7 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
         }
     }
 
-    public function applicants(Request $request)
+    public function applicants(Request $request, JobMatchingService $matchingService)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -250,7 +246,7 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
         $applications = Application::with([
             'student.user',
             'student.skills',
-            'jobPost'
+            'jobPost.skills'
         ])
             ->whereHas('jobPost', function ($query) use ($company) {
                 $query->where('company_id', $company->id);
@@ -258,7 +254,12 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
             ->latest()
             ->get();
 
-        $applicants = $applications->map(function ($application) {
+        $applicants = $applications->map(function ($application) use ($matchingService) {
+
+            $match = $matchingService->calculateMatch(
+                $application->student,
+                $application->jobPost
+            );
 
             return [
 
@@ -280,7 +281,11 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
 
                 'status' => $application->status,
 
-                'match' => (int) $application->match_score,
+                'match' => $match['match'],
+
+                'matching_skills' => $match['matching_skills'],
+
+                'missing_skills' => $match['missing_skills'],
 
                 'skills' => $application->student->skills
                     ->pluck('name')
@@ -292,6 +297,7 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
                     ->format('Y-m-d'),
 
             ];
+
         });
 
         return response()->json($applicants);
@@ -333,7 +339,7 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
         $student = $application->student;
         return response()->json([
             'application_id' => $application->id,
-
+            'status' => $application->status,
             'student' => [
                 'name' => $student->user->name,
                 'email' => $student->user->email,
@@ -363,90 +369,95 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
                 'file_path' => $application->resume->file_path,
                 'updated_at' => $application->resume->updated_at,
             ] : null,
-            'match' => [
-                'percentage' => $application->match_score,
-                'reasons' => $this->generateMatchReasons($application)
-            ],
+            'match' => $this->getApplicantMatch($application),
             'notes' => $application->notes,
             'timeline' => $application->timeline,
+            'ai_summary' => null,
         ]);
     }
 
     private function generateMatchReasons($application)
     {
         $reasons = [];
+
         if ($application->match_score >= 80) {
             $reasons[] = "Strong skills match";
         }
 
+        $studentSkills = $application->student->skills
+            ->pluck('name')
+            ->toArray();
+
+        $jobSkills = $application->jobPost->skills
+            ->pluck('name')
+            ->toArray();
+
+        $matchedSkills = array_intersect($studentSkills, $jobSkills);
+
+        if (count($matchedSkills) > 0) {
+            $reasons[] = "Matched skills: " . implode(", ", $matchedSkills);
+        }
+
         if (
+            $application->student->major &&
             $application->student->major ==
             $application->jobPost->required_major
         ) {
             $reasons[] = "Major matches job requirements";
         }
+
         if (
+            $application->student->location &&
             $application->student->location ==
             $application->jobPost->location
         ) {
             $reasons[] = "Same location";
         }
+
         if (
+            $application->student->preferred_employment_type &&
             $application->student->preferred_employment_type ==
             $application->jobPost->employment_type
         ) {
             $reasons[] = "Employment type matches";
         }
+
+        if (empty($reasons)) {
+            $reasons[] = "Candidate profile matches job requirements";
+        }
+
         return $reasons;
     }
 
     public function aiCandidateSummary(Request $request, $id, GeminiService $gemini)
     {
-
         $company = Company::where('user_id', $request->user()->id)->first();
 
-
         if (!$company) {
-
             return response()->json([
                 'message' => 'Company profile not found'
             ], 404);
-
         }
 
-
-
         $application = Application::with([
-
             'student.user',
             'student.skills',
             'student.education',
             'student.experience',
             'student.projects',
             'jobPost'
-
         ])
-
             ->where('id', $id)
-
             ->whereHas('jobPost', function ($query) use ($company) {
-
                 $query->where('company_id', $company->id);
-
             })
-
             ->first();
 
-
-
         if (!$application) {
-
             return response()->json([
                 'message' => 'Applicant not found'
             ], 404);
-
         }
-
 
         $student = $application->student;
         $skills = $student->skills
@@ -455,13 +466,12 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
 
         $experience = $student->experience
             ->map(function ($exp) {
-
                 return $exp->position .
                     " at " .
                     $exp->company;
-
             })
             ->implode(', ');
+
         $projects = $student->projects
             ->pluck('title')
             ->implode(', ');
@@ -515,7 +525,6 @@ Return plain text only.
 Do not use markdown symbols.";
 
         try {
-
             $summary = $gemini->generate($prompt);
             return response()->json([
                 'candidate' => $student->user->name,
@@ -526,9 +535,7 @@ Do not use markdown symbols.";
                 'message' => 'AI service error',
                 'error' => $e->getMessage()
             ], 500);
-
         }
-
     }
 
     public function fullApplicantDetails(Request $request, $id, GeminiService $gemini)
@@ -540,7 +547,6 @@ Do not use markdown symbols.";
                 'message' => 'Company profile not found'
             ], 404);
         }
-
 
         $application = Application::with([
             'student.user',
@@ -560,27 +566,21 @@ Do not use markdown symbols.";
             })
             ->first();
 
-
         if (!$application) {
             return response()->json([
                 'message' => 'Applicant not found'
             ], 404);
         }
 
-
         $student = $application->student;
-
-
 
         $skills = $student->skills
             ->pluck('name')
             ->implode(', ');
 
-
         $projects = $student->projects
             ->pluck('title')
             ->implode(', ');
-
 
         $prompt = "
 Analyze this job candidate briefly.
@@ -609,93 +609,82 @@ Applied Job:
 Provide a short professional hiring summary.
 ";
 
-
         try {
-
             $aiSummary = $gemini->generate($prompt);
-
         } catch (\Exception $e) {
-
             $aiSummary = "AI summary unavailable";
-
         }
 
-
-
         return response()->json([
-
-
             'application_id' => $application->id,
 
-
             'student' => [
-
                 'name' => $student->user->name,
-
                 'email' => $student->user->email,
-
                 'phone' => $student->phone,
-
                 'avatar' => $student->avatar,
-
                 'headline' => $student->headline,
-
                 'university' => $student->university,
-
                 'major' => $student->major,
-
                 'gpa' => $student->gpa,
-
                 'location' => $student->location,
-
                 'bio' => $student->bio,
-
                 'portfolio' => $student->portfolio,
-
                 'linkedin' => $student->linkedin,
-
                 'github' => $student->github,
-
             ],
-
 
             'skills' => $student->skills
                 ->pluck('name')
                 ->values(),
 
-
-
             'resume' => $application->resume,
 
-
             'match' => [
-
-                'percentage' => $application->match_score,
-
+               'percentage' => count($jobSkills) > 0
+    ? round((count($matchingSkills) / count($jobSkills)) * 100)
+    : 0,
                 'reasons' => $this->generateMatchReasons($application)
-
             ],
-
-
 
             'notes' => $application->notes,
 
-
             'timeline' => $application->timeline,
-
 
             'ai_summary' => $aiSummary,
 
-
             'job' => [
-
                 'id' => $application->jobPost->id,
-
                 'title' => $application->jobPost->title
-
             ]
-
         ]);
+    }
 
+    private function getApplicantMatch($application)
+    {
+        $studentSkills = $application->student->skills
+            ->pluck('name')
+            ->toArray();
+
+        $jobSkills = $application->jobPost->skills
+            ->pluck('name')
+            ->toArray();
+
+        $matchingSkills = array_values(
+            array_intersect($studentSkills, $jobSkills)
+        );
+
+        $missingSkills = array_values(
+            array_diff($jobSkills, $studentSkills)
+        );
+
+        return [
+           'percentage' => count($jobSkills) > 0
+    ? round((count($matchingSkills) / count($jobSkills)) * 100)
+    : 0,
+            'matching_skills' => $matchingSkills,
+            'missing_skills' => $missingSkills,
+            'reasons' => $this->generateMatchReasons($application)
+        ];
     }
 }
