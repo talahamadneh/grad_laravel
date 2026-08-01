@@ -32,4 +32,13 @@ return [
            // env('GEMINI_API_KEY_4'),
         ])),
     ],
+
+    'groq' => [
+        'keys' => array_values(array_filter([
+            env('GROQ_API_KEY'),
+            // env('GROQ_API_KEY_1'),
+            // env('GROQ_API_KEY_2'),
+        ])),
+        'model' => env('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+    ],
 ];

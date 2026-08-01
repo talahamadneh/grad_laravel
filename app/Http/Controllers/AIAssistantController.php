@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Services\GeminiService;
+use App\Services\GroqService;
 use App\Models\Resume;
 use App\Models\ResumeAnalysis;
 use Illuminate\Support\Facades\Auth;
@@ -11,7 +11,7 @@ use App\Services\JobMatchingService;
 
 class AIAssistantController extends Controller
 {
-   public function reviewCV(Request $request, GeminiService $gemini)
+   public function reviewCV(Request $request, GroqService $groq)
     {
         $student = Auth::user()->student;
 
@@ -43,7 +43,7 @@ Education: " . json_encode($resume->education) . "
 ";
 
         try {
-            $result = $gemini->generate($prompt);
+            $result = $groq->generate($prompt);
 
             $cleaned = preg_replace('/```json|```/', '', $result);
             $parsed = json_decode(trim($cleaned), true);
@@ -77,7 +77,7 @@ Education: " . json_encode($resume->education) . "
         }
     }
 
-    public function aiJobRecommendations(Request $request, JobMatchingService $matchingService, GeminiService $gemini)
+    public function aiJobRecommendations(Request $request, JobMatchingService $matchingService, GroqService $groq)
     {
         $student = Auth::user()->student;
 
@@ -124,7 +124,7 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
 }";
 
         try {
-            $result = $gemini->generate($prompt);
+            $result = $groq->generate($prompt);
             $cleaned = preg_replace('/```json|```/', '', $result);
             $parsed = json_decode(trim($cleaned), true);
 
@@ -157,7 +157,7 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
         }
     }
 
-    public function generateInterviewQuestions(Request $request, GeminiService $gemini)
+    public function generateInterviewQuestions(Request $request, GroqService $groq)
     {
         $request->validate([
             'job_id' => 'required|integer|exists:job_posts,id'
@@ -188,7 +188,7 @@ Respond ONLY in this EXACT JSON format (no markdown, no extra text):
 }";
 
         try {
-            $result = $gemini->generate($prompt);
+            $result = $groq->generate($prompt);
             $cleaned = preg_replace('/```json|```/', '', $result);
             $parsed = json_decode(trim($cleaned), true);
 
@@ -213,7 +213,7 @@ Respond ONLY in this EXACT JSON format (no markdown, no extra text):
         }
     }
 
-    public function submitInterviewAnswers(Request $request, GeminiService $gemini)
+    public function submitInterviewAnswers(Request $request, GroqService $groq)
     {
         $request->validate([
             'job_title' => 'required|string',
@@ -276,7 +276,7 @@ Respond ONLY in this EXACT JSON format (no markdown, no extra text):
 }";
 
             try {
-                $result = $gemini->generate($prompt);
+                $result = $groq->generate($prompt);
                 $cleaned = preg_replace('/```json|```/', '', $result);
                 $parsed = json_decode(trim($cleaned), true);
                 $explanations = $parsed['explanations'] ?? [];

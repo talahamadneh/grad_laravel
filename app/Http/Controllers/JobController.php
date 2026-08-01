@@ -15,10 +15,14 @@ use App\Services\NotificationService;
 class JobController extends Controller
 {
     protected NotificationService $notificationService;
+    protected JobMatchingService $jobMatchingService;
 
-    public function __construct(NotificationService $notificationService)
-    {
+    public function __construct(
+        NotificationService $notificationService,
+        JobMatchingService $jobMatchingService
+    ) {
         $this->notificationService = $notificationService;
+        $this->jobMatchingService = $jobMatchingService;
     }
 
     public function index(Request $request)
@@ -61,8 +65,9 @@ class JobController extends Controller
                 ->pluck('job_post_id')
                 ->toArray();
 
-            $jobs->getCollection()->transform(function ($job) use ($savedIds) {
+            $jobs->getCollection()->transform(function ($job) use ($student, $savedIds) {
                 $job->is_saved = in_array($job->id, $savedIds);
+                $job->match = $this->jobMatchingService->calculateMatch($student, $job);
                 return $job;
             });
         }
@@ -325,7 +330,7 @@ class JobController extends Controller
         ]);
     }
 
-    public function recommendedJobs(JobMatchingService $service)
+    public function recommendedJobs()
     {
         $student = Auth::user()->student;
 
@@ -335,7 +340,7 @@ class JobController extends Controller
             ], 404);
         }
 
-        $jobs = $service->getRecommendedJobs($student);
+        $jobs = $this->jobMatchingService->getRecommendedJobs($student);
 
         return response()->json($jobs);
     }

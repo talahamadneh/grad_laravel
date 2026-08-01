@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\JobPost;
+use App\Models\SavedJob;
 
 class JobMatchingService
 {
@@ -12,6 +13,10 @@ class JobMatchingService
             ->pluck('skills.id')
             ->toArray();
 
+        $savedIds = SavedJob::where('student_id', $student->id)
+            ->pluck('job_post_id')
+            ->toArray();
+
         $jobs = JobPost::with([
             'company',
             'skills'
@@ -19,7 +24,7 @@ class JobMatchingService
             ->where('status', 'Open')
             ->get();
 
-        $recommendedJobs = $jobs->map(function ($job) use ($student, $studentSkills) {
+        $recommendedJobs = $jobs->map(function ($job) use ($student, $studentSkills, $savedIds) {
 
             $score = 0;
 
@@ -46,6 +51,7 @@ class JobMatchingService
                 ->values()
                 ->toArray();
 
+
             if (count($jobSkills) > 0) {
 
                 $skillScore =
@@ -55,10 +61,10 @@ class JobMatchingService
 
                 if (count($matchingSkills) > 0) {
                     $reasons[] =
-                        "Matches your skills: "
-                        . implode(", ", $matchingSkills);
+                        "Matches your skills: " . implode(", ", $matchingSkills);
                 }
             }
+
 
             if (
                 $student->location &&
@@ -66,37 +72,31 @@ class JobMatchingService
                 strtolower(trim($student->location)) === strtolower(trim($job->location))
             ) {
                 $score += 10;
-
                 $reasons[] = "Matches your preferred location";
             }
+
 
             if (
                 $student->preferred_employment_type &&
                 $job->employment_type &&
-                strtolower($student->preferred_employment_type)
-                ==
+                strtolower($student->preferred_employment_type) ==
                 strtolower($job->employment_type)
             ) {
-
                 $score += 5;
-
-                $reasons[] =
-                    "Matches your preferred employment type";
+                $reasons[] = "Matches your preferred employment type";
             }
+
 
             if (
                 $student->major &&
                 $job->required_major &&
-                strtolower($student->major)
-                ==
+                strtolower($student->major) ==
                 strtolower($job->required_major)
             ) {
-
                 $score += 5;
-
-                $reasons[] =
-                    "Matches your major";
+                $reasons[] = "Matches your major";
             }
+
 
             if ($score >= 90) {
                 $level = "Excellent Match";
@@ -107,6 +107,7 @@ class JobMatchingService
             } else {
                 $level = "Low Match";
             }
+
 
             return [
 
@@ -142,14 +143,78 @@ class JobMatchingService
                     $missingSkills,
 
                 "reasons" =>
-                    $reasons
+                    $reasons,
+
+                "is_saved" =>
+                    in_array($job->id, $savedIds)
             ];
 
         });
 
-        // ترتيب الوظائف من الأعلى Match للأقل
+
         return $recommendedJobs
             ->sortByDesc('match')
             ->values();
+    }
+
+
+    public function calculateMatch($student, $job)
+    {
+        $score = 0;
+
+        $studentSkills = $student->skills()
+            ->pluck('skills.id')
+            ->toArray();
+
+        $jobSkills = $job->skills
+            ->pluck('id')
+            ->toArray();
+
+
+        $matchedSkillIds = array_intersect(
+            $studentSkills,
+            $jobSkills
+        );
+
+
+        if (count($jobSkills) > 0) {
+
+            $score +=
+                (count($matchedSkillIds) / count($jobSkills)) * 80;
+
+        }
+
+
+        if (
+            $student->location &&
+            $job->location &&
+            strtolower(trim($student->location)) ==
+            strtolower(trim($job->location))
+        ) {
+            $score += 10;
+        }
+
+
+        if (
+            $student->preferred_employment_type &&
+            $job->employment_type &&
+            strtolower($student->preferred_employment_type) ==
+            strtolower($job->employment_type)
+        ) {
+            $score += 5;
+        }
+
+
+        if (
+            $student->major &&
+            $job->required_major &&
+            strtolower($student->major) ==
+            strtolower($job->required_major)
+        ) {
+            $score += 5;
+        }
+
+
+        return round($score);
     }
 }
