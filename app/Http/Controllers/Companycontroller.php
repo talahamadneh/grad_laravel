@@ -27,15 +27,31 @@ class CompanyController extends Controller
             ->where('company_id', $company->id)
             ->latest()
             ->get()
-            ->map(function ($job) {
+            ->map(function ($job) use ($company) {
                 return [
+
                     'id' => $job->id,
+
                     'title' => $job->title,
-                    'location' => $job->location,
+
+                    'dept' => $job->department,
+
                     'type' => $job->employment_type,
+
                     'mode' => $job->work_mode,
+
+                    'location' => $job->location,
+
                     'status' => $job->status,
+
                     'applicants' => $job->applications_count,
+
+                    'company' => $company->company_name,
+
+                    'views' => 0,
+
+                    'posted' => optional($job->created_at)->diffForHumans(),
+
                 ];
             });
 
@@ -697,5 +713,212 @@ Provide a short professional hiring summary.
 
         ]);
 
+    }
+
+    public function jobDetails(Request $request, $id)
+    {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $job = JobPost::with([
+            'skills',
+            'applications.student.user'
+        ])
+            ->where('company_id', $company->id)
+            ->find($id);
+
+        if (!$job) {
+            return response()->json([
+                'message' => 'Job not found'
+            ], 404);
+        }
+
+        $applications = $job->applications;
+
+        return response()->json([
+
+            'id' => $job->id,
+            'title' => $job->title,
+            'department' => $job->department,
+            'description' => $job->description,
+            'employment_type' => $job->employment_type,
+            'work_mode' => $job->work_mode,
+            'location' => $job->location,
+            'salary' => $job->salary,
+            'deadline' => $job->deadline,
+            'vacancies' => $job->vacancies,
+            'required_major' => $job->required_major,
+            'status' => $job->status,
+            'created_at' => $job->created_at,
+
+            'skills' => $job->skills
+                ->pluck('name')
+                ->values(),
+
+            'stats' => [
+                'applicants' => $applications->count(),
+
+                'interview' => $applications
+                    ->where('status', 'Interview')
+                    ->count(),
+
+                'shortlisted' => $applications
+                    ->where('status', 'Shortlisted')
+                    ->count(),
+
+                'hired' => $applications
+                    ->where('status', 'Hired')
+                    ->count(),
+            ],
+
+            'recent_applicants' => $applications
+                ->sortByDesc('applied_at')
+                ->take(5)
+                ->values()
+                ->map(function ($application) {
+
+                    return [
+                        'application_id' => $application->id,
+                        'name' => $application->student->user->name,
+                        'headline' => $application->student->headline,
+                        'avatar' => $application->student->avatar,
+                        'match' => (int) $application->match_score,
+                        'status' => $application->status,
+                    ];
+
+                }),
+
+        ]);
+    }
+
+    public function editJob(Request $request, $id)
+    {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $job = JobPost::with('skills')
+            ->where('company_id', $company->id)
+            ->find($id);
+
+        if (!$job) {
+            return response()->json([
+                'message' => 'Job not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'id' => $job->id,
+            'title' => $job->title,
+            'department' => $job->department,
+            'description' => $job->description,
+            'employment_type' => $job->employment_type,
+            'level' => $job->level,
+            'work_mode' => $job->work_mode,
+            'location' => $job->location,
+            'salary' => $job->salary,
+            'benefits' => $job->benefits ?? [],
+            'deadline' => $job->deadline,
+            'vacancies' => $job->vacancies,
+            'required_major' => $job->required_major,
+            'status' => $job->status,
+            'skills' => $job->skills
+                ->pluck('name')
+                ->values(),
+        ]);
+    }
+
+    public function updateJob(Request $request, $id)
+    {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $job = JobPost::with('skills')
+            ->where('company_id', $company->id)
+            ->find($id);
+
+        if (!$job) {
+            return response()->json([
+                'message' => 'Job not found'
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'title' => 'required|string|max:255',
+            'department' => 'nullable|string|max:255',
+            'employment_type' => 'required|in:Full-Time,Part-Time,Internship,Contract',
+            'level' => 'nullable|string|max:255',
+            'work_mode' => 'required|in:Remote,Hybrid,On-site',
+            'location' => 'nullable|string|max:255',
+            'salary' => 'nullable|numeric',
+            'description' => 'nullable|string',
+            'skills' => 'nullable|array',
+            'skills.*' => 'string|max:255',
+            'benefits' => 'nullable|array',
+            'benefits.*' => 'string|max:255',
+            'deadline' => 'nullable|date',
+            'vacancies' => 'nullable|integer|min:1',
+            'required_major' => 'nullable|string|max:255',
+            'status' => 'nullable|in:Open,Closed,Draft',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        $job->update([
+            'title' => $validated['title'],
+            'department' => $validated['department'] ?? null,
+            'employment_type' => $validated['employment_type'],
+            'level' => $validated['level'] ?? null,
+            'work_mode' => $validated['work_mode'],
+            'location' => $validated['location'] ?? null,
+            'salary' => $validated['salary'] ?? null,
+            'description' => $validated['description'] ?? null,
+            'benefits' => $validated['benefits'] ?? [],
+            'deadline' => $validated['deadline'] ?? null,
+            'vacancies' => $validated['vacancies'] ?? 1,
+            'required_major' => $validated['required_major'] ?? null,
+            'status' => $validated['status'] ?? $job->status,
+        ]);
+
+        if (isset($validated['skills'])) {
+
+            $skillIds = [];
+
+            foreach ($validated['skills'] as $skillName) {
+
+                $skill = Skill::firstOrCreate([
+                    'name' => $skillName
+                ]);
+
+                $skillIds[] = $skill->id;
+            }
+
+            $job->skills()->sync($skillIds);
+        }
+
+        return response()->json([
+            'message' => 'Job updated successfully',
+            'job' => $job->load('skills')
+        ]);
     }
 }

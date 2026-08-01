@@ -118,9 +118,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/company/applicants/{applicationId}/status', [ApplicationStatusController::class, 'update']);
     Route::get('/company/applicants/{applicationId}/timeline', [ApplicationStatusController::class, 'timeline']);
     //Ai Summary
-    Route::get('/company/applicants/{id}/ai-summary',[CompanyController::class,'aiCandidateSummary']);
+    Route::get('/company/applicants/{id}/ai-summary', [CompanyController::class, 'aiCandidateSummary']);
     // Complete Applicant Details
-    Route::get('/company/applicants/{id}/details',[CompanyController::class,'fullApplicantDetails']);
+    Route::get('/company/applicants/{id}/details', [CompanyController::class, 'fullApplicantDetails']);
+
+    //job details
+    Route::get('/company/jobs/{id}', [CompanyController::class, 'jobDetails']);
+
+    //edit job
+    Route::get('/company/jobs/{id}/edit', [CompanyController::class, 'editJob']);
+    Route::put('/company/jobs/{id}', [CompanyController::class, 'updateJob']);
+
+
 });
 
 
