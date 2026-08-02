@@ -20,6 +20,7 @@ use App\Http\Controllers\CompanyDashboardController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CompanyNoteController;
 use App\Http\Controllers\ApplicationStatusController;
+use App\Http\Controllers\InterviewController;
 
 
 
@@ -119,9 +120,38 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/company/applicants/{applicationId}/status', [ApplicationStatusController::class, 'update']);
     Route::get('/company/applicants/{applicationId}/timeline', [ApplicationStatusController::class, 'timeline']);
     //Ai Summary
-    Route::get('/company/applicants/{id}/ai-summary',[CompanyController::class,'aiCandidateSummary']);
+    Route::get('/company/applicants/{id}/ai-summary', [CompanyController::class, 'aiCandidateSummary']);
     // Complete Applicant Details
-    Route::get('/company/applicants/{id}/details',[CompanyController::class,'fullApplicantDetails']);
-});
+    Route::get('/company/applicants/{id}/details', [CompanyController::class, 'fullApplicantDetails']);
+
+    //job details
+    Route::get('/company/jobs/{id}', [CompanyController::class, 'jobDetails']);
+
+    //edit job
+    Route::get('/company/jobs/{id}/edit', [CompanyController::class, 'editJob']);
+    Route::put('/company/jobs/{id}', [CompanyController::class, 'updateJob']);
+
+    //delete job
+    Route::delete('/company/jobs/{id}', [CompanyController::class, 'destroyJob']);
+
+    //shortlist applicant
+    Route::patch('/company/applications/{application}/shortlist',[CompanyController::class, 'shortlist']);
+    Route::get('/company/jobs/{job}/shortlisted', [CompanyController::class, 'getShortlisted']);
+
+    //interview routes in applicant details
+    Route::post('/company/interviews',[CompanyController::class, 'scheduleInterview']);
+
+    //interview routes
+    Route::get('/company/interviews', [InterviewController::class, 'index']);
+    Route::get('/company/interviews/stats', [InterviewController::class,'stats']);
+    Route::get('/company/interviews/calendar', [InterviewController::class,'calendar']);
+   
+    Route::get('/company/interviews/{interview}',[InterviewController::class, 'show']);
+    Route::put('/company/interviews/{interview}',[InterviewController::class, 'update']);
+    Route::patch('/company/interviews/{interview}/cancel', [InterviewController::class, 'cancel']);
+    Route::patch('/company/interviews/{interview}/complete',[InterviewController::class, 'complete']);
+   
+   
+    });
 
 
