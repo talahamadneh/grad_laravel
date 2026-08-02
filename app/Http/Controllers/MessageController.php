@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 
 class MessageController extends Controller
 {
-  
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -60,6 +60,7 @@ class MessageController extends Controller
 
             $unread = Message::where('sender_id', $otherUserId)
                 ->where('receiver_id', $user->id)
+                ->where('is_read', false)
                 ->count();
 
             $conversations[$otherUserId] = [
@@ -75,11 +76,18 @@ class MessageController extends Controller
         return response()->json(array_values($conversations));
     }
 
-    
+
 
     public function show(Request $request, User $user)
     {
         $me = $request->user();
+
+        Message::where('sender_id', $user->id)
+            ->where('receiver_id', $me->id)
+            ->where('is_read', false)
+            ->update([
+                'is_read' => true
+            ]);
 
         $messages = Message::where(function ($q) use ($me, $user) {
             $q->where('sender_id', $me->id)
@@ -108,6 +116,8 @@ class MessageController extends Controller
 
                     "time" => $message->created_at->format("h:i A"),
 
+                    "is_read" => $message->is_read,
+
                     "created_at" => $message->created_at,
                 ];
             })
@@ -115,7 +125,7 @@ class MessageController extends Controller
         );
     }
 
-   
+
 
     public function store(Request $request)
     {
@@ -128,8 +138,8 @@ class MessageController extends Controller
             'sender_id' => $request->user()->id,
             'receiver_id' => $request->receiver_id,
             'message' => $request->message,
+            'is_read' => false,
         ]);
-
         return response()->json([
             "success" => true,
             "message" => $message

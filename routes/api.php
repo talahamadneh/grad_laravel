@@ -22,6 +22,7 @@ use App\Http\Controllers\CompanyNoteController;
 use App\Http\Controllers\ApplicationStatusController;
 use App\Http\Controllers\InterviewController;
 use App\Http\Controllers\InterviewFeedbackController;
+use App\Http\Controllers\ReportController;
 
 
 
@@ -156,6 +157,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'show']);
     Route::put('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'update']);
     Route::delete('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'destroy']);
+
+    //Reports
+    Route::get('/company/reports/overview', [ReportController::class, 'overview']);
+    Route::get('/company/reports/jobs', [ReportController::class, 'jobs']);
+    Route::get('/company/reports/pipeline', [ReportController::class, 'pipeline']);
+    Route::get('/company/reports/monthly-applications', [ReportController::class, 'monthlyApplications']);
 
 
 });
