@@ -21,6 +21,8 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CompanyNoteController;
 use App\Http\Controllers\ApplicationStatusController;
 use App\Http\Controllers\InterviewController;
+use App\Http\Controllers\InterviewFeedbackController;
+use App\Http\Controllers\ReportController;
 
 
 
@@ -136,23 +138,35 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/company/jobs/{id}', [CompanyController::class, 'destroyJob']);
 
     //shortlist applicant
-    Route::patch('/company/applications/{application}/shortlist',[CompanyController::class, 'shortlist']);
+    Route::patch('/company/applications/{application}/shortlist', [CompanyController::class, 'shortlist']);
     Route::get('/company/jobs/{job}/shortlisted', [CompanyController::class, 'getShortlisted']);
 
     //interview routes in applicant details
-    Route::post('/company/interviews',[CompanyController::class, 'scheduleInterview']);
+    Route::post('/company/interviews', [CompanyController::class, 'scheduleInterview']);
 
     //interview routes
     Route::get('/company/interviews', [InterviewController::class, 'index']);
-    Route::get('/company/interviews/stats', [InterviewController::class,'stats']);
-    Route::get('/company/interviews/calendar', [InterviewController::class,'calendar']);
-   
-    Route::get('/company/interviews/{interview}',[InterviewController::class, 'show']);
-    Route::put('/company/interviews/{interview}',[InterviewController::class, 'update']);
+    Route::get('/company/interviews/stats', [InterviewController::class, 'stats']);
+    Route::get('/company/interviews/calendar', [InterviewController::class, 'calendar']);
+
+    Route::get('/company/interviews/{interview}', [InterviewController::class, 'show']);
+    Route::put('/company/interviews/{interview}', [InterviewController::class, 'update']);
     Route::patch('/company/interviews/{interview}/cancel', [InterviewController::class, 'cancel']);
-    Route::patch('/company/interviews/{interview}/complete',[InterviewController::class, 'complete']);
-   
-   
-    });
+    Route::patch('/company/interviews/{interview}/complete', [InterviewController::class, 'complete']);
+
+    //interview feedback routes
+    Route::post('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'store']);
+    Route::get('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'show']);
+    Route::put('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'update']);
+    Route::delete('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'destroy']);
+
+    //Reports
+    Route::get('/company/reports/overview', [ReportController::class, 'overview']);
+    Route::get('/company/reports/jobs', [ReportController::class, 'jobs']);
+    Route::get('/company/reports/pipeline', [ReportController::class, 'pipeline']);
+    Route::get('/company/reports/monthly-applications', [ReportController::class, 'monthlyApplications']);
+
+
+});
 
 
