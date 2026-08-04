@@ -31,29 +31,17 @@ class CompanyController extends Controller
             ->get()
             ->map(function ($job) use ($company) {
                 return [
-
                     'id' => $job->id,
-
                     'title' => $job->title,
-
                     'dept' => $job->department,
-
                     'type' => $job->employment_type,
-
                     'mode' => $job->work_mode,
-
                     'location' => $job->location,
-
                     'status' => $job->status,
-
                     'applicants' => $job->applications_count,
-
                     'company' => $company->company_name,
-
                     'views' => 0,
-
                     'posted' => optional($job->created_at)->diffForHumans(),
-
                 ];
             });
 
@@ -274,46 +262,33 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
 
         $applicants = $applications->map(function ($application) use ($matchingService) {
 
+            $student = $application->student;
+
             $match = $matchingService->calculateMatch(
-                $application->student,
+                $student,
                 $application->jobPost
             );
 
             return [
-
-                'id' => $application->id,
-
-                'name' => $application->student->user->name,
-
-                'title' => $application->student->headline,
-
-                'university' => $application->student->university,
-
-                'location' => $application->student->location,
-
-                'avatar' => $application->student->avatar,
-
+                'id' => (int) $application->id,
+                'application_id' => (int) $application->id,
+                'name' => $student->user->name ?? 'N/A',
+                'title' => $student->headline ?? '',
+                'university' => $student->university ?? '',
+                'location' => $student->location ?? '',
+                'avatar' => $student->avatar,
                 'job_id' => $application->jobPost->id,
-
-                'job' => $application->jobPost->title,
-
+                'job' => $application->jobPost->title ?? '',
                 'status' => $application->status,
-
                 'match' => $match['match'],
-
                 'matching_skills' => $match['matching_skills'],
-
                 'missing_skills' => $match['missing_skills'],
-
-                'skills' => $application->student->skills
+                'skills' => $student->skills
                     ->pluck('name')
                     ->values(),
-
-                'email' => $application->student->user->email,
-
+                'email' => $student->user->email ?? '',
                 'applied_at' => optional($application->applied_at)
                     ->format('Y-m-d'),
-
             ];
 
         });
@@ -321,7 +296,7 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
         return response()->json($applicants);
     }
 
-    public function applicantDetails(Request $request, $id)
+    public function applicantDetails(Request $request, $id, JobMatchingService $matchingService)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -340,7 +315,8 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
             'student.certificates',
             'resume',
             'notes',
-            'timeline'
+            'timeline',
+            'jobPost.skills'
         ])
             ->where('id', $id)
             ->whereHas('jobPost', function ($query) use ($company) {
@@ -387,55 +363,41 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
                 'file_path' => $application->resume->file_path,
                 'updated_at' => $application->resume->updated_at,
             ] : null,
-            'match' => $this->getApplicantMatch($application),
+            'match' => $this->getApplicantMatch($application, $matchingService),
             'notes' => $application->notes,
             'timeline' => $application->timeline,
             'ai_summary' => null,
         ]);
     }
 
-    private function generateMatchReasons($application)
+    private function generateMatchReasons($application, $match)
     {
         $reasons = [];
 
-        if ($application->match_score >= 80) {
-            $reasons[] = "Strong skills match";
-        }
-
-        $studentSkills = $application->student->skills
-            ->pluck('name')
-            ->toArray();
-
-        $jobSkills = $application->jobPost->skills
-            ->pluck('name')
-            ->toArray();
-
-        $matchedSkills = array_intersect($studentSkills, $jobSkills);
-
-        if (count($matchedSkills) > 0) {
-            $reasons[] = "Matched skills: " . implode(", ", $matchedSkills);
+        if (count($match['matching_skills']) > 0) {
+            $reasons[] = "Matched skills: " . implode(", ", $match['matching_skills']);
         }
 
         if (
             $application->student->major &&
-            $application->student->major ==
-            $application->jobPost->required_major
+            $application->jobPost->required_major &&
+            strtolower(trim($application->student->major)) === strtolower(trim($application->jobPost->required_major))
         ) {
             $reasons[] = "Major matches job requirements";
         }
 
         if (
             $application->student->location &&
-            $application->student->location ==
-            $application->jobPost->location
+            $application->jobPost->location &&
+            strtolower(trim($application->student->location)) === strtolower(trim($application->jobPost->location))
         ) {
             $reasons[] = "Same location";
         }
 
         if (
             $application->student->preferred_employment_type &&
-            $application->student->preferred_employment_type ==
-            $application->jobPost->employment_type
+            $application->jobPost->employment_type &&
+            strtolower(trim($application->student->preferred_employment_type)) === strtolower(trim($application->jobPost->employment_type))
         ) {
             $reasons[] = "Employment type matches";
         }
@@ -495,7 +457,6 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
             ->implode(', ');
 
         $prompt = "
-
 You are an AI recruitment assistant.
 
 Analyze this candidate for a job application.
@@ -556,7 +517,7 @@ Do not use markdown symbols.";
         }
     }
 
-    public function fullApplicantDetails(Request $request, $id, GeminiService $gemini)
+    public function fullApplicantDetails(Request $request, $id, GeminiService $gemini, JobMatchingService $matchingService)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -576,7 +537,7 @@ Do not use markdown symbols.";
             'resume',
             'notes',
             'timeline',
-            'jobPost'
+            'jobPost.skills'
         ])
             ->where('id', $id)
             ->whereHas('jobPost', function ($query) use ($company) {
@@ -658,12 +619,7 @@ Provide a short professional hiring summary.
 
             'resume' => $application->resume,
 
-            'match' => [
-               'percentage' => count($jobSkills) > 0
-    ? round((count($matchingSkills) / count($jobSkills)) * 100)
-    : 0,
-                'reasons' => $this->generateMatchReasons($application)
-            ],
+            'match' => $this->getApplicantMatch($application, $matchingService),
 
             'notes' => $application->notes,
 
@@ -678,35 +634,22 @@ Provide a short professional hiring summary.
         ]);
     }
 
-    private function getApplicantMatch($application)
+    private function getApplicantMatch($application, JobMatchingService $matchingService)
     {
-        $studentSkills = $application->student->skills
-            ->pluck('name')
-            ->toArray();
-
-        $jobSkills = $application->jobPost->skills
-            ->pluck('name')
-            ->toArray();
-
-        $matchingSkills = array_values(
-            array_intersect($studentSkills, $jobSkills)
-        );
-
-        $missingSkills = array_values(
-            array_diff($jobSkills, $studentSkills)
+        $match = $matchingService->calculateMatch(
+            $application->student,
+            $application->jobPost
         );
 
         return [
-           'percentage' => count($jobSkills) > 0
-    ? round((count($matchingSkills) / count($jobSkills)) * 100)
-    : 0,
-            'matching_skills' => $matchingSkills,
-            'missing_skills' => $missingSkills,
-            'reasons' => $this->generateMatchReasons($application)
+            'percentage' => $match['match'],
+            'matching_skills' => $match['matching_skills'],
+            'missing_skills' => $match['missing_skills'],
+            'reasons' => $this->generateMatchReasons($application, $match)
         ];
     }
 
-    public function jobDetails(Request $request, $id)
+    public function jobDetails(Request $request, $id, JobMatchingService $matchingService)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -718,7 +661,8 @@ Provide a short professional hiring summary.
 
         $job = JobPost::with([
             'skills',
-            'applications.student.user'
+            'applications.student.user',
+            'applications.student.skills'
         ])
             ->where('company_id', $company->id)
             ->find($id);
@@ -771,14 +715,20 @@ Provide a short professional hiring summary.
                 ->sortByDesc('applied_at')
                 ->take(5)
                 ->values()
-                ->map(function ($application) {
+                ->map(function ($application) use ($job, $matchingService) {
+
+                    $matchData = $matchingService->calculateMatch(
+                        $application->student,
+                        $job
+                    );
 
                     return [
+                        'id' => $application->id,
                         'application_id' => $application->id,
-                        'name' => $application->student->user->name,
-                        'headline' => $application->student->headline,
-                        'avatar' => $application->student->avatar,
-                        'match' => (int) $application->match_score,
+                        'name' => $application->student->user->name ?? 'Applicant',
+                        'headline' => $application->student->headline ?? '',
+                        'avatar' => $application->student->avatar ?? null,
+                        'match' => (int) ($matchData['match'] ?? 0),
                         'status' => $application->status,
                     ];
 
@@ -933,7 +883,6 @@ Provide a short professional hiring summary.
             ], 404);
         }
 
-        // لا تسمح بالحذف إذا عليها متقدمين
         if ($job->applications()->exists()) {
             return response()->json([
                 'message' => 'Cannot delete a job that has applicants.'
@@ -947,11 +896,11 @@ Provide a short professional hiring summary.
         ]);
     }
 
-    public function shortlist(Application $application)
+    public function shortlist(Request $request, Application $application)
     {
-        $job = $application->jobPost;
+        $company = Company::where('user_id', $request->user()->id)->first();
 
-        if ($job->company_id != auth()->user()->company->id) {
+        if (!$company || $application->jobPost->company_id != $company->id) {
             return response()->json([
                 'message' => 'Unauthorized.'
             ], 403);
@@ -973,19 +922,81 @@ Provide a short professional hiring summary.
         ]);
     }
 
-    public function getShortlisted(JobPost $job)
-    {
-        $applications = $job->applications()
-            ->where('status', 'Shortlisted')
-            ->with(['student', 'resume'])
-            ->get();
+    public function getShortlisted(Request $request, JobPost $job)
+{
+    $company = Company::where('user_id', $request->user()->id)->first();
 
-        return response()->json($applications);
+    if (!$company || $job->company_id != $company->id) {
+        return response()->json([
+            'message' => 'Unauthorized.'
+        ], 403);
     }
+
+    $applications = $job->applications()
+        ->where('status', 'Shortlisted')
+        ->with([
+            'student.user',
+            'student.skills',
+            'student.education',
+            'resume'
+        ])
+        ->get();
+
+    return response()->json(
+        $applications->map(function ($application) {
+
+            $student = $application->student;
+
+            return [
+                'id' => $application->id,
+                'status' => $application->status,
+
+                'student' => [
+                    'name' => $student->user->name ?? '',
+                    'email' => $student->user->email ?? '',
+                    'phone' => $student->phone,
+                    'avatar' => $student->avatar,
+                    'headline' => $student->headline,
+                    'university' => $student->university,
+                    'major' => $student->major,
+                    'gpa' => $student->gpa,
+                    'location' => $student->location,
+                    'bio' => $student->bio,
+                    'portfolio' => $student->portfolio,
+                    'linkedin' => $student->linkedin,
+                    'github' => $student->github,
+                ],
+
+                'skills' => $student->skills
+                    ->pluck('name')
+                    ->values(),
+
+                'education' => $student->education,
+
+                'resume' => $application->resume ? [
+                    'id' => $application->resume->id,
+                    'title' => $application->resume->title,
+                    'file_path' => $application->resume->file_path,
+                ] : null,
+
+                'shortlisted_at' => $application->updated_at,
+            ];
+
+        })
+    );
+}
 
 
     public function scheduleInterview(Request $request)
     {
+        $company = Company::where('user_id', $request->user()->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
         $request->validate([
             'application_id' => 'required|exists:applications,id',
             'interview_date' => 'required|date|after:now',
@@ -996,7 +1007,7 @@ Provide a short professional hiring summary.
 
         $application = Application::findOrFail($request->application_id);
 
-        if ($application->jobPost->company_id != auth()->user()->company->id) {
+        if ($application->jobPost->company_id != $company->id) {
             return response()->json([
                 'message' => 'Unauthorized.'
             ], 403);
@@ -1025,5 +1036,44 @@ Provide a short professional hiring summary.
             'message' => 'Interview scheduled successfully.',
             'interview' => $interview
         ], 201);
+    }
+
+    public function interviews(Request $request)
+    {
+        $company = $request->user()->company;
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $interviews = Interview::with([
+            'application.student.user',
+            'application.student'
+        ])
+            ->whereHas('application.jobPost', function ($q) use ($company) {
+                $q->where('company_id', $company->id);
+            })
+            ->latest()
+            ->get()
+            ->map(function ($interview) {
+
+                $student = $interview->application->student;
+
+                return [
+                    'id' => $interview->id,
+                    'name' => $student->user->name,
+                    'avatar' => $student->avatar,
+                    'role' => $student->headline,
+                    'type' => $interview->type,
+                    'date' => $interview->interview_date,
+                    'time' => null,
+                    'duration' => '30 min',
+                    'status' => $interview->status,
+                ];
+            });
+
+        return response()->json($interviews);
     }
 }

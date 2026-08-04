@@ -5,11 +5,12 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\JobPost;
 use App\Models\Application;
+use App\Services\JobMatchingService;
 use Illuminate\Support\Facades\Auth;
 
 class CompanyDashboardController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, JobMatchingService $matchingService)
     {
         $company = Auth::user()->company;
 
@@ -67,15 +68,24 @@ class CompanyDashboardController extends Controller
             ];
         });
 
-        $recentApplications = Application::with(['student.user', 'jobPost'])
+        $recentApplications = Application::with([
+            'student.user',
+            'student.skills',
+            'jobPost.skills'
+        ])
             ->whereIn('job_post_id', $jobIds)
             ->orderByDesc('applied_at')
             ->take(5)
             ->get();
 
-        $recentApplicants = $recentApplications->map(function ($app) {
+        $recentApplicants = $recentApplications->map(function ($app) use ($matchingService) {
 
             $student = $app->student;
+
+            $match = $matchingService->calculateMatch(
+                $student,
+                $app->jobPost
+            );
 
             return [
                 'id' => $app->id,
@@ -85,7 +95,9 @@ class CompanyDashboardController extends Controller
                 'title' => $student->headline ?? 'Student',
                 'univ' => $student->university ?? '',
                 'location' => $student->location ?? '',
-                'match' => $app->match_score ?? rand(70,95),
+                'match' => $match['match'],
+                'matching_skills' => $match['matching_skills'],
+                'missing_skills' => $match['missing_skills'],
                 'skills' => $student->skills?->pluck('name')->toArray() ?? [],
                 'status' => $app->status,
                 'job_title' => $app->jobPost->title ?? null,

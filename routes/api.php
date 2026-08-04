@@ -124,6 +124,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Complete Applicant Details
     Route::get('/company/applicants/{id}/details', [CompanyController::class, 'fullApplicantDetails']);
 
+
     //job details
     Route::get('/company/jobs/{id}', [CompanyController::class, 'jobDetails']);
 

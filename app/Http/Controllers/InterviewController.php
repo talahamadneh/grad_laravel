@@ -1,13 +1,9 @@
 <?php
 
 namespace App\Http\Controllers;
+
 use Illuminate\Http\Request;
-use App\Models\Application;
 use App\Models\Interview;
-use App\Models\ApplicationStatusHistory;
-use Illuminate\Support\Facades\Validator;
-
-
 
 class InterviewController extends Controller
 {
@@ -19,42 +15,31 @@ class InterviewController extends Controller
             'application.student.user',
             'application.jobPost'
         ])
-            ->whereHas('application.jobPost', function ($query) use ($companyId) {
-                $query->where('company_id', $companyId);
-            })
-            ->orderBy('interview_date')
-            ->get();
+        ->whereHas('application.jobPost', function ($query) use ($companyId) {
+            $query->where('company_id', $companyId);
+        })
+        ->orderBy('interview_date')
+        ->get();
 
         $data = $interviews->map(function ($interview) {
-
             return [
-
                 'id' => $interview->id,
-
                 'candidate_name' => $interview->application->student->user->name,
-
                 'headline' => $interview->application->student->headline,
-
                 'avatar' => $interview->application->student->avatar,
-
                 'job_title' => $interview->application->jobPost->title,
-
                 'interview_date' => $interview->interview_date,
-
                 'type' => $interview->type,
-
                 'meeting_link' => $interview->meeting_link,
-
                 'location' => $interview->location,
-
                 'status' => $interview->status,
-
+                'duration' => '30 min',
             ];
-
         });
 
         return response()->json($data);
     }
+
 
     public function show(Interview $interview)
     {
@@ -73,26 +58,18 @@ class InterviewController extends Controller
 
         return response()->json([
             'id' => $interview->id,
-
             'candidate_name' => $interview->application->student->user->name,
-
             'headline' => $interview->application->student->headline,
-
             'avatar' => $interview->application->student->avatar,
-
             'job_title' => $interview->application->jobPost->title,
-
             'interview_date' => $interview->interview_date,
-
             'type' => $interview->type,
-
             'meeting_link' => $interview->meeting_link,
-
             'location' => $interview->location,
-
             'status' => $interview->status,
         ]);
     }
+
 
     public function update(Request $request, Interview $interview)
     {
@@ -116,22 +93,15 @@ class InterviewController extends Controller
             'type' => $request->type,
             'meeting_link' => $request->meeting_link,
             'location' => $request->location,
+            'status' => 'Scheduled'
         ]);
 
         return response()->json([
             'message' => 'Interview updated successfully.',
-            'interview' => [
-                'id' => $interview->id,
-                'candidate_name' => $interview->application->student->user->name,
-                'job_title' => $interview->application->jobPost->title,
-                'interview_date' => $interview->interview_date,
-                'type' => $interview->type,
-                'meeting_link' => $interview->meeting_link,
-                'location' => $interview->location,
-                'status' => $interview->status,
-            ]
+            'interview' => $interview
         ]);
     }
+
 
     public function cancel(Interview $interview)
     {
@@ -149,12 +119,10 @@ class InterviewController extends Controller
 
         return response()->json([
             'message' => 'Interview cancelled successfully.',
-            'interview' => [
-                'id' => $interview->id,
-                'status' => $interview->status
-            ]
+            'status' => $interview->status
         ]);
     }
+
 
     public function complete(Interview $interview)
     {
@@ -178,84 +146,69 @@ class InterviewController extends Controller
 
         return response()->json([
             'message' => 'Interview completed successfully.',
-            'interview' => [
-                'id' => $interview->id,
-                'status' => $interview->status
-            ]
+            'status' => $interview->status
         ]);
     }
 
-    public function stats()
+
+    public function stats(Request $request)
     {
-        $companyId = auth()->user()->company->id;
+        $company = $request->user()->company;
 
-
-        $query = Interview::whereHas('application.jobPost', function ($q) use ($companyId) {
-            $q->where('company_id', $companyId);
+        $interviews = Interview::whereHas('application.jobPost', function ($q) use ($company) {
+            $q->where('company_id', $company->id);
         });
 
-
         return response()->json([
-
-            'scheduled' => (clone $query)
+            'scheduled' => (clone $interviews)
                 ->where('status', 'Scheduled')
                 ->count(),
 
-
-            'this_week' => (clone $query)
+            'this_week' => (clone $interviews)
                 ->whereBetween('interview_date', [
-                    now()->startOfWeek(),
-                    now()->endOfWeek()
+                    now()->startOfDay(),
+                    now()->addDays(6)->endOfDay()
                 ])
                 ->count(),
 
-
-            'confirmed' => (clone $query)
-                ->where('status', 'Confirmed')
+            'completed' => (clone $interviews)
+                ->where('status', 'Completed')
                 ->count(),
 
-
-            'candidates' => (clone $query)
+            'candidates' => (clone $interviews)
                 ->distinct('application_id')
                 ->count('application_id'),
-
         ]);
     }
+
 
     public function calendar()
     {
         $companyId = auth()->user()->company->id;
 
-
         $interviews = Interview::whereHas('application.jobPost', function ($q) use ($companyId) {
             $q->where('company_id', $companyId);
         })
-            ->whereBetween('interview_date', [
-                now()->startOfDay(),
-                now()->addDays(13)->endOfDay()
-            ])
-            ->pluck('interview_date');
-
+        ->whereBetween('interview_date', [
+            now()->startOfDay(),
+            now()->addDays(6)->endOfDay()
+        ])
+        ->pluck('interview_date');
 
         $days = [];
 
-        for ($i = 0; $i < 14; $i++) {
-
+        for ($i = 0; $i < 7; $i++) {
             $date = now()->addDays($i);
 
             $days[] = [
-                "date" => $date->format('Y-m-d'),
-                "day" => $date->format('D'),
-                "number" => $date->format('j'),
-                "has_interviews" => $interviews
-                    ->contains(function ($item) use ($date) {
-                        return \Carbon\Carbon::parse($item)
-                            ->isSameDay($date);
-                    })
+                'date' => $date->format('Y-m-d'),
+                'day' => $date->format('D'),
+                'number' => $date->format('j'),
+                'has_interviews' => $interviews->contains(function ($item) use ($date) {
+                    return \Carbon\Carbon::parse($item)->isSameDay($date);
+                })
             ];
-
         }
-
 
         return response()->json($days);
     }
