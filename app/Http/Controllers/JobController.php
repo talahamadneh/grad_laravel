@@ -15,13 +15,6 @@ use App\Services\NotificationService;
 
 class JobController extends Controller
 {
-    protected NotificationService $notificationService;
-
-    public function __construct(NotificationService $notificationService)
-    {
-        $this->notificationService = $notificationService;
-    }
-
     public function index(Request $request)
     {
         $jobs = JobPost::with([
@@ -184,11 +177,7 @@ class JobController extends Controller
             'applied_at' => now(),
         ]);
 
-        $this->notificationService->send(
-            $job->company->user_id,
-            'New Job Application',
-            $student->user->name . ' applied for "' . $job->title . '".'
-        );
+        NotificationService::applicationSubmitted($application);
 
         return response()->json([
             'message' => 'Application submitted successfully',
@@ -247,10 +236,13 @@ class JobController extends Controller
 
         $statusMap = [
             'Applied' => 'Applied',
+            'Screening' => 'Screening',
             'Under Review' => 'Applied',
             'Shortlisted' => 'Shortlisted',
             'Interview' => 'Interview',
-            'Accepted' => 'Hired',
+            'Offer' => 'Offer',
+            'Accepted' => 'Accepted',
+            'Hired' => 'Accepted',
             'Rejected' => 'Rejected',
         ];
 
@@ -269,7 +261,7 @@ class JobController extends Controller
         $total = $applications->count();
         $active = $applications->whereNotIn('status', ['Accepted', 'Rejected'])->count();
         $interviews = $applications->where('status', 'Interview')->count();
-        $offers = $applications->where('status', 'Accepted')->count();
+        $offers = $applications->where('status', 'Offer')->count();
 
         return response()->json([
             'stats' => [

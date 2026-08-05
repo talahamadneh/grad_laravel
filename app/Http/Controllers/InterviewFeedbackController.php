@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ApplicationStatusHistory;
 use App\Models\Interview;
 use App\Models\InterviewFeedback;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 
 class InterviewFeedbackController extends Controller
@@ -44,6 +46,8 @@ class InterviewFeedbackController extends Controller
             'notes' => $validated['notes'] ?? null,
             'final_decision' => $validated['final_decision'],
         ]);
+
+        $this->applyFinalDecision($interview, $validated['final_decision']);
 
         return response()->json([
             'message' => 'Feedback submitted successfully.',
@@ -93,7 +97,18 @@ class InterviewFeedbackController extends Controller
             'final_decision' => 'required|in:Accepted,Rejected',
         ]);
 
+        $previousDecision = $interview->feedback->final_decision;
+
         $interview->feedback->update($validated);
+
+        if ($previousDecision === $validated['final_decision']) {
+            return response()->json([
+                'message' => 'Feedback updated successfully.',
+                'feedback' => $interview->feedback
+            ]);
+        }
+
+        $this->applyFinalDecision($interview, $validated['final_decision']);
 
         return response()->json([
             'message' => 'Feedback updated successfully.',
@@ -122,5 +137,29 @@ class InterviewFeedbackController extends Controller
         return response()->json([
             'message' => 'Feedback deleted successfully.'
         ]);
+    }
+
+    private function applyFinalDecision(Interview $interview, string $decision): void
+    {
+        $application = $interview->application;
+
+        if ($application->status === $decision) {
+            return;
+        }
+
+        $application->update([
+            'status' => $decision,
+        ]);
+
+        ApplicationStatusHistory::create([
+            'application_id' => $application->id,
+            'status' => $decision,
+            'changed_at' => now(),
+        ]);
+
+        NotificationService::applicationStatusChanged(
+            $application->fresh(['student.user', 'jobPost.company']),
+            $decision
+        );
     }
 }

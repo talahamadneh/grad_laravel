@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Application;
 use App\Models\ApplicationStatusHistory;
 use App\Models\Company;
+use App\Services\NotificationService;
 
 class ApplicationStatusController extends Controller
 {
@@ -22,7 +23,7 @@ class ApplicationStatusController extends Controller
 
 
         $request->validate([
-            'status' => 'required|in:Applied,Screening,Interview,Shortlisted,Offer,Hired,Rejected'
+            'status' => 'required|in:Applied,Screening,Shortlisted,Interview,Offer,Accepted,Hired,Rejected'
         ]);
 
 
@@ -43,10 +44,17 @@ class ApplicationStatusController extends Controller
 
 
 
+        $previousStatus = $application->status === 'Hired' ? 'Accepted' : $application->status;
+        $newStatus = $request->status === 'Hired' ? 'Accepted' : $request->status;
+
         // Update current application status
         $application->update([
-            'status' => $request->status
+            'status' => $newStatus
         ]);
+
+        if ($previousStatus !== $newStatus) {
+            NotificationService::applicationStatusChanged($application->fresh(['student.user', 'jobPost.company']), $newStatus);
+        }
 
 
 
@@ -65,13 +73,13 @@ class ApplicationStatusController extends Controller
 
 
         // Add timeline record only if status changed
-        if (!$lastStatus || $lastStatus->status != $request->status) {
+        if (!$lastStatus || $lastStatus->status != $newStatus) {
 
             $history = ApplicationStatusHistory::create([
 
                 'application_id' => $application->id,
 
-                'status' => $request->status
+                'status' => $newStatus
 
             ]);
 
@@ -83,7 +91,7 @@ class ApplicationStatusController extends Controller
 
             'message' => 'Application status updated successfully',
 
-            'application_status' => $application->status,
+            'application_status' => $newStatus,
 
             'history' => $history
 

@@ -33,7 +33,7 @@ class CompanyDashboardController extends Controller
             ->count();
 
         $hired = Application::whereIn('job_post_id', $jobIds)
-            ->where('status', 'Accepted')
+            ->whereIn('status', ['Accepted', 'Hired'])
             ->count();
 
         $activity = Application::whereIn('job_post_id', $jobIds)

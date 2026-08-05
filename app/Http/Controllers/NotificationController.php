@@ -7,8 +7,7 @@ use App\Models\Notification;
 
 class NotificationController extends Controller
 {
-    
-
+    // جميع الإشعارات
     public function index(Request $request)
     {
         $notifications = Notification::where('user_id', $request->user()->id)
@@ -24,11 +23,12 @@ class NotificationController extends Controller
 
                     "message" => $notification->message,
 
-                    "is_read" => (bool)$notification->is_read,
+                    "is_read" => (bool) $notification->is_read,
 
                     "time" => $notification->created_at->diffForHumans(),
 
                     "created_at" => $notification->created_at,
+
                 ];
             });
 
@@ -38,8 +38,21 @@ class NotificationController extends Controller
         ]);
     }
 
-   
 
+    // عدد الإشعارات غير المقروءة
+    public function unreadCount(Request $request)
+    {
+        return response()->json([
+
+            "unread_count" => Notification::where('user_id', $request->user()->id)
+                ->where('is_read', false)
+                ->count()
+
+        ]);
+    }
+
+
+    // تعليم إشعار كمقروء
     public function markAsRead(Request $request, $id)
     {
         $notification = Notification::where('id', $id)
@@ -50,54 +63,54 @@ class NotificationController extends Controller
 
             return response()->json([
                 "message" => "Notification not found."
-            ],404);
+            ], 404);
 
         }
 
         $notification->update([
-            "is_read"=>true
+            "is_read" => true
         ]);
 
         return response()->json([
-            "message"=>"Notification marked as read."
+            "message" => "Notification marked as read."
         ]);
     }
 
-    
 
+    // تعليم جميع الإشعارات كمقروءة
     public function markAllAsRead(Request $request)
     {
-        Notification::where('user_id',$request->user()->id)
-            ->where('is_read',false)
+        Notification::where('user_id', $request->user()->id)
+            ->where('is_read', false)
             ->update([
-                'is_read'=>true
+                "is_read" => true
             ]);
 
         return response()->json([
-            "message"=>"All notifications marked as read."
+            "message" => "All notifications marked as read."
         ]);
     }
 
-   
 
-    public function destroy(Request $request,$id)
+    // حذف إشعار
+    public function destroy(Request $request, $id)
     {
-        $notification = Notification::where('id',$id)
-            ->where('user_id',$request->user()->id)
+        $notification = Notification::where('id', $id)
+            ->where('user_id', $request->user()->id)
             ->first();
 
-        if(!$notification){
+        if (!$notification) {
 
             return response()->json([
-                "message"=>"Notification not found."
-            ],404);
+                "message" => "Notification not found."
+            ], 404);
 
         }
 
         $notification->delete();
 
         return response()->json([
-            "message"=>"Notification deleted successfully."
+            "message" => "Notification deleted successfully."
         ]);
     }
 }

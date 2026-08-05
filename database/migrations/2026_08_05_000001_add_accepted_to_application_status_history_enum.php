@@ -8,14 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('application_status_history', function (Blueprint $table) {
-
-            $table->id();
-
-            $table->foreignId('application_id')
-                ->constrained('applications')
-                ->cascadeOnDelete();
-
+        Schema::table('application_status_history', function (Blueprint $table) {
             $table->enum('status', [
                 'Applied',
                 'Screening',
@@ -24,17 +17,23 @@ return new class extends Migration
                 'Offer',
                 'Accepted',
                 'Hired',
-                'Rejected'
-            ]);
-
-            $table->timestamp('changed_at')->useCurrent();
-
-            $table->timestamps();
+                'Rejected',
+            ])->change();
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('application_status_history');
+        Schema::table('application_status_history', function (Blueprint $table) {
+            $table->enum('status', [
+                'Applied',
+                'Screening',
+                'Shortlisted',
+                'Interview',
+                'Offer',
+                'Hired',
+                'Rejected',
+            ])->change();
+        });
     }
 };

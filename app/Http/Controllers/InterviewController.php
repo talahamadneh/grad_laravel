@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use App\Models\Application;
 use App\Models\Interview;
 use App\Models\ApplicationStatusHistory;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\Validator;
 
 
@@ -118,6 +119,8 @@ class InterviewController extends Controller
             'location' => $request->location,
         ]);
 
+        NotificationService::interviewRescheduled($interview->fresh(['application.student', 'application.jobPost.company']));
+
         return response()->json([
             'message' => 'Interview updated successfully.',
             'interview' => [
@@ -146,6 +149,8 @@ class InterviewController extends Controller
         $interview->update([
             'status' => 'Cancelled'
         ]);
+
+        NotificationService::interviewCancelled($interview->fresh(['application.student', 'application.jobPost.company']));
 
         return response()->json([
             'message' => 'Interview cancelled successfully.',

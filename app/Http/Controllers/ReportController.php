@@ -28,7 +28,7 @@ class ReportController extends Controller
         $hiredCandidates = Application::whereHas('jobPost', function ($q) use ($companyId) {
             $q->where('company_id', $companyId);
         })
-            ->where('status', 'Hired')
+            ->whereIn('status', ['Accepted', 'Hired'])
             ->count();
 
         return response()->json([
@@ -76,7 +76,7 @@ class ReportController extends Controller
             'Shortlisted' => $statuses['Shortlisted'] ?? 0,
             'Interview' => $statuses['Interview'] ?? 0,
             'Offer' => $statuses['Offer'] ?? 0,
-            'Hired' => $statuses['Hired'] ?? 0,
+            'Accepted' => ($statuses['Accepted'] ?? 0) + ($statuses['Hired'] ?? 0),
             'Rejected' => $statuses['Rejected'] ?? 0,
         ]);
     }

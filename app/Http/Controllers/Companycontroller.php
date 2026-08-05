@@ -11,6 +11,10 @@ use App\Models\ApplicationStatusHistory;
 use App\Models\Interview;
 use Illuminate\Support\Facades\Validator;
 use App\Services\GeminiService;
+use App\Services\NotificationService;
+
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class CompanyController extends Controller
 {
@@ -774,7 +778,7 @@ Provide a short professional hiring summary.
                     ->count(),
 
                 'hired' => $applications
-                    ->where('status', 'Hired')
+                    ->whereIn('status', ['Accepted', 'Hired'])
                     ->count(),
             ],
 
@@ -968,15 +972,22 @@ Provide a short professional hiring summary.
             ], 403);
         }
 
-        $application->update([
-            'status' => 'Shortlisted'
-        ]);
+        if ($application->status !== 'Shortlisted') {
+            $application->update([
+                'status' => 'Shortlisted'
+            ]);
 
-        ApplicationStatusHistory::create([
-            'application_id' => $application->id,
-            'status' => 'Shortlisted',
-            'changed_at' => now(),
-        ]);
+            NotificationService::applicationStatusChanged(
+                $application->fresh(['student.user', 'jobPost.company']),
+                'Shortlisted'
+            );
+
+            ApplicationStatusHistory::create([
+                'application_id' => $application->id,
+                'status' => 'Shortlisted',
+                'changed_at' => now(),
+            ]);
+        }
 
         return response()->json([
             'message' => 'Candidate shortlisted successfully.',
@@ -1013,12 +1024,33 @@ Provide a short professional hiring summary.
             ], 403);
         }
 
+        $interview = $this->createInterview(
+            $application,
+            $request->interview_date,
+            $request->type,
+            $request->meeting_link,
+            $request->location
+        );
+
+        return response()->json([
+            'message' => 'Interview scheduled successfully.',
+            'interview' => $interview
+        ], 201);
+    }
+
+    private function createInterview(
+        Application $application,
+        string $interviewDate,
+        string $type,
+        ?string $meetingLink,
+        ?string $location
+    ) {
         $interview = Interview::create([
             'application_id' => $application->id,
-            'interview_date' => $request->interview_date,
-            'type' => $request->type,
-            'meeting_link' => $request->meeting_link,
-            'location' => $request->location,
+            'interview_date' => $interviewDate,
+            'type' => $type,
+            'meeting_link' => $meetingLink,
+            'location' => $location,
             'status' => 'Scheduled',
         ]);
 
@@ -1032,9 +1064,111 @@ Provide a short professional hiring summary.
             'changed_at' => now(),
         ]);
 
-        return response()->json([
-            'message' => 'Interview scheduled successfully.',
-            'interview' => $interview
-        ], 201);
+        NotificationService::interviewScheduled(
+            $interview->fresh([
+                'application.student',
+                'application.jobPost.company'
+            ])
+        );
+
+        return $interview;
+    }
+
+    public function bulkSchedule(Request $request)
+    {
+        $request->validate([
+            'application_ids' => 'required|array|min:1',
+            'application_ids.*' => 'exists:applications,id',
+
+            'interview_date' => 'required|date',
+
+            'start_time' => 'required',
+
+            'duration' => 'required|integer|min:5',
+
+            'type' => 'required|in:Online,Onsite',
+
+            'meeting_link' => 'nullable|string',
+
+            'location' => 'nullable|string',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+
+            $currentTime = Carbon::parse(
+                $request->interview_date . ' ' . $request->start_time
+            );
+
+            $count = 0;
+
+            foreach ($request->application_ids as $applicationId) {
+
+                $application = Application::findOrFail($applicationId);
+
+                if ($application->jobPost->company_id != auth()->user()->company->id) {
+
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => 'Unauthorized.'
+                    ], 403);
+
+                }
+
+                if (Interview::where('application_id', $application->id)->exists()) {
+
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => 'One or more selected candidates already have an interview scheduled.'
+                    ], 422);
+
+                }
+
+                $this->createInterview(
+
+                    $application,
+
+                    $currentTime->format('Y-m-d H:i:s'),
+
+                    $request->type,
+
+                    $request->meeting_link,
+
+                    $request->location
+
+                );
+
+                $count++;
+
+                $currentTime->addMinutes($request->duration);
+
+            }
+
+            DB::commit();
+
+            return response()->json([
+
+                'message' => 'Interviews scheduled successfully.',
+
+                'scheduled_count' => $count
+
+            ], 201);
+
+        } catch (\Exception $e) {
+
+            DB::rollBack();
+
+            return response()->json([
+
+                'message' => 'Scheduling failed.',
+
+                'error' => $e->getMessage()
+
+            ], 500);
+
+        }
     }
 }
