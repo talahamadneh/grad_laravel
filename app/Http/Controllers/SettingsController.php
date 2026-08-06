@@ -69,7 +69,12 @@ class SettingsController extends Controller
                 'job_recommendations'=>true,
                 'messages'=>true,
                 'profile_views'=>true,
-                'resume_feedback'=>true
+                'resume_feedback'=>true,
+                'company_applications'=>true,
+                'company_messages'=>true,
+                'company_matches'=>true,
+                'company_deadlines'=>true,
+                'company_interviews'=>true
             ]
 
         );
@@ -89,7 +94,12 @@ class SettingsController extends Controller
             'job_recommendations'=>'boolean',
             'messages'=>'boolean',
             'profile_views'=>'boolean',
-            'resume_feedback'=>'boolean'
+            'resume_feedback'=>'boolean',
+            'company_applications'=>'boolean',
+            'company_messages'=>'boolean',
+            'company_matches'=>'boolean',
+            'company_deadlines'=>'boolean',
+            'company_interviews'=>'boolean'
 
         ]);
 

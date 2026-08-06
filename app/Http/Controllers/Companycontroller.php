@@ -303,6 +303,8 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
                 'status' => $application->status,
 
                 'match' => (int) $application->match_score,
+                'match_source' => $application->match_source,
+                'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
 
                 'skills' => $application->student->skills
                     ->pluck('name')
@@ -387,6 +389,8 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
             ] : null,
             'match' => [
                 'percentage' => $application->match_score,
+                'source' => $application->match_source,
+                'analysis' => $application->match_analysis,
                 'reasons' => $this->generateMatchReasons($application)
             ],
             'notes' => $application->notes,
@@ -396,6 +400,10 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
 
     private function generateMatchReasons($application)
     {
+        if (!empty($application->match_analysis['matching_points'])) {
+            return $application->match_analysis['matching_points'];
+        }
+
         $reasons = [];
         if ($application->match_score >= 80) {
             $reasons[] = "Strong skills match";
@@ -693,6 +701,8 @@ Provide a short professional hiring summary.
             'match' => [
 
                 'percentage' => $application->match_score,
+                'source' => $application->match_source,
+                'analysis' => $application->match_analysis,
 
                 'reasons' => $this->generateMatchReasons($application)
 
@@ -794,6 +804,8 @@ Provide a short professional hiring summary.
                         'headline' => $application->student->headline,
                         'avatar' => $application->student->avatar,
                         'match' => (int) $application->match_score,
+                        'match_source' => $application->match_source,
+                        'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
                         'status' => $application->status,
                     ];
 

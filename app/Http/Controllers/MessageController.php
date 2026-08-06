@@ -151,6 +151,13 @@ class MessageController extends Controller
             NotificationService::newMessageFromCompany($request->receiver_id, $companyName);
         }
 
+        if ($receiver?->role === 'Company' && $request->user()->role === 'Student') {
+            $sender = $request->user();
+            $studentName = $sender->name;
+
+            NotificationService::newMessageForCompany($request->receiver_id, $studentName);
+        }
+
         return response()->json([
             "success" => true,
             "message" => $message

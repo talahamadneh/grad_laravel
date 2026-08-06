@@ -10,6 +10,7 @@ use App\Services\JobMatchingService;
 use App\Models\SavedJob;
 use App\Models\Application;
 use App\Models\Resume;
+use App\Services\AIJobMatchService;
 use App\Services\NotificationService;
 
 
@@ -117,7 +118,7 @@ class JobController extends Controller
     }
 
 
-    public function applyJob(Request $request, $id)
+    public function applyJob(Request $request, $id, AIJobMatchService $aiJobMatch)
     {
         $student = Auth::user()->student;
 
@@ -177,7 +178,20 @@ class JobController extends Controller
             'applied_at' => now(),
         ]);
 
+        $application->load(['student.skills', 'student.user', 'jobPost.skills', 'jobPost.company.user', 'resume']);
+        $match = $aiJobMatch->analyze($application);
+
+        $application->update([
+            'match_score' => $match['score'],
+            'match_analysis' => $match['analysis'],
+            'match_source' => $match['source'],
+        ]);
+
+        $application->refresh();
+
         NotificationService::applicationSubmitted($application);
+        NotificationService::newApplicationForCompany($application);
+        NotificationService::matchingCandidateForCompany($application);
 
         return response()->json([
             'message' => 'Application submitted successfully',
