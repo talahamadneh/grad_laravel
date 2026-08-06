@@ -10,6 +10,7 @@ use App\Services\JobMatchingService;
 use App\Models\SavedJob;
 use App\Models\Application;
 use App\Models\Resume;
+use App\Models\PrivacySetting;
 use App\Services\AIJobMatchService;
 use App\Services\NotificationService;
 
@@ -128,7 +129,9 @@ class JobController extends Controller
             ], 404);
         }
 
-        $job = JobPost::where('status', 'Open')->find($id);
+        $job = JobPost::with('company')
+            ->where('status', 'Open')
+            ->find($id);
 
         if (!$job) {
             return response()->json([
@@ -178,8 +181,40 @@ class JobController extends Controller
             'applied_at' => now(),
         ]);
 
-        $application->load(['student.skills', 'student.user', 'jobPost.skills', 'jobPost.company.user', 'resume']);
-        $match = $aiJobMatch->analyze($application);
+        $application->load([
+            'student.skills',
+            'student.user',
+            'jobPost.skills',
+            'jobPost.company.user',
+            'resume'
+        ]);
+
+        // Privacy settings of the company
+        $privacy = PrivacySetting::firstOrCreate(
+            [
+                'user_id' => $job->company->user_id
+            ],
+            [
+                'profile_visibility' => true,
+                'contact_visibility' => false,
+                'ai_resume_analysis' => true,
+                'ai_candidate_matching' => true,
+            ]
+        );
+
+        if ($privacy->ai_candidate_matching) {
+
+            $match = $aiJobMatch->analyze($application);
+
+        } else {
+
+            $match = [
+                'score' => null,
+                'analysis' => null,
+                'source' => 'disabled',
+            ];
+
+        }
 
         $application->update([
             'match_score' => $match['score'],
