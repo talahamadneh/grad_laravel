@@ -17,6 +17,10 @@ class Interview extends Model
         'status',
     ];
 
+    protected $casts = [
+        'interview_date' => 'datetime',
+    ];
+
     public function application()
     {
         return $this->belongsTo(Application::class);

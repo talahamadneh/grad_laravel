@@ -74,10 +74,14 @@ class ReportController extends Controller
             ->count();
 
         return response()->json([
-    'Accepted' => $accepted,
-    'Shortlisted' => $statuses['Shortlisted'] ?? 0,
-    'Rejected' => $statuses['Rejected'] ?? 0,
-]);
+            'Applied' => $statuses['Applied'] ?? 0,
+            'Screening' => $statuses['Screening'] ?? 0,
+            'Shortlisted' => $statuses['Shortlisted'] ?? 0,
+            'Interview' => $statuses['Interview'] ?? 0,
+            'Offer' => $statuses['Offer'] ?? 0,
+            'Accepted' => $accepted,
+            'Rejected' => $statuses['Rejected'] ?? 0,
+        ]);
     }
 
     public function monthlyApplications()

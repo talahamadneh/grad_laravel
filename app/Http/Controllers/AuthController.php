@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Student;
 use App\Models\Company;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -52,6 +53,10 @@ class AuthController extends Controller
                 }
 
             });
+
+            if ($data['role'] === 'student') {
+                NotificationService::studentRegistered($user);
+            }
 
             return response()->json([
                 'message' => 'User registered successfully',

@@ -31,6 +31,7 @@ class JobPost extends Model
 
     protected $casts = [
         'benefits' => 'array',
+        'deadline' => 'date',
     ];
 
     public function company()

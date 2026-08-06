@@ -35,17 +35,19 @@ class JobController extends Controller
 
         if ($request->filled('search')) {
             $search = $request->input('search');
+
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%")
-                  ->orWhereHas('company', function ($c) use ($search) {
-                      $c->where('company_name', 'like', "%{$search}%");
-                  });
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhereHas('company', function ($c) use ($search) {
+                        $c->where('company_name', 'like', "%{$search}%");
+                    });
             });
         }
 
         if ($request->has('types') && is_array($request->input('types'))) {
             $types = $request->input('types');
+
             if (count($types)) {
                 $query->whereIn('employment_type', $types);
             }
@@ -53,6 +55,7 @@ class JobController extends Controller
 
         if ($request->has('modes') && is_array($request->input('modes'))) {
             $modes = $request->input('modes');
+
             if (count($modes)) {
                 $query->whereIn('work_mode', $modes);
             }
@@ -66,8 +69,12 @@ class JobController extends Controller
                 ->toArray();
 
             $jobs->getCollection()->transform(function ($job) use ($student, $savedIds) {
+
                 $job->is_saved = in_array($job->id, $savedIds);
-                $job->match = $this->jobMatchingService->calculateMatch($student, $job);
+
+                $job->match = $this->jobMatchingService
+                    ->calculateMatch($student, $job);
+
                 return $job;
             });
         }
@@ -134,12 +141,10 @@ class JobController extends Controller
     {
         $student = Auth::user()->student;
 
-        $saved = SavedJob::where('student_id', $student->id)
-            ->where('job_post_id', $id)
-            ->exists();
-
         return response()->json([
-            'saved' => $saved
+            'saved' => SavedJob::where('student_id', $student->id)
+                ->where('job_post_id', $id)
+                ->exists()
         ]);
     }
 
@@ -148,9 +153,9 @@ class JobController extends Controller
         $student = Auth::user()->student;
 
         $jobs = SavedJob::with([
-                'jobPost.company',
-                'jobPost.skills'
-            ])
+            'jobPost.company',
+            'jobPost.skills'
+        ])
             ->where('student_id', $student->id)
             ->get()
             ->pluck('jobPost')
@@ -193,6 +198,7 @@ class JobController extends Controller
         ]);
 
         if ($request->filled('resume_id')) {
+
             $resume = Resume::where('id', $request->resume_id)
                 ->where('student_id', $student->id)
                 ->first();
@@ -202,8 +208,12 @@ class JobController extends Controller
                     'message' => 'Invalid resume selected'
                 ], 422);
             }
+
         } else {
-            $resume = Resume::where('student_id', $student->id)->latest()->first();
+
+            $resume = Resume::where('student_id', $student->id)
+                ->latest()
+                ->first();
         }
 
         if (!$resume) {
@@ -220,11 +230,7 @@ class JobController extends Controller
             'applied_at' => now(),
         ]);
 
-        $this->notificationService->send(
-            $job->company->user_id,
-            'New Job Application',
-            $student->user->name . ' applied for "' . $job->title . '".'
-        );
+        NotificationService::applicationSubmitted($application);
 
         return response()->json([
             'message' => 'Application submitted successfully',
@@ -236,30 +242,18 @@ class JobController extends Controller
     {
         $student = Auth::user()->student;
 
-        if (!$student) {
-            return response()->json([
-                'applied' => false
-            ]);
-        }
-
-        $applied = Application::where('student_id', $student->id)
-            ->where('job_post_id', $id)
-            ->exists();
-
         return response()->json([
-            'applied' => $applied
+            'applied' => $student
+                ? Application::where('student_id', $student->id)
+                    ->where('job_post_id', $id)
+                    ->exists()
+                : false
         ]);
     }
 
     public function withdrawApplication($id)
     {
         $student = Auth::user()->student;
-
-        if (!$student) {
-            return response()->json([
-                'message' => 'Student profile not found'
-            ], 404);
-        }
 
         $application = Application::where('student_id', $student->id)
             ->where('job_post_id', $id)
@@ -282,23 +276,22 @@ class JobController extends Controller
     {
         $student = Auth::user()->student;
 
-        if (!$student) {
-            return response()->json([
-                'message' => 'Student profile not found'
-            ], 404);
-        }
-
-        $applications = Application::with(['jobPost.company'])
+        $applications = Application::with([
+            'jobPost.company'
+        ])
             ->where('student_id', $student->id)
             ->orderByDesc('applied_at')
             ->get();
 
         $statusMap = [
             'Applied' => 'Applied',
+            'Screening' => 'Screening',
             'Under Review' => 'Applied',
             'Shortlisted' => 'Shortlisted',
             'Interview' => 'Interview',
-            'Accepted' => 'Hired',
+            'Offer' => 'Offer',
+            'Accepted' => 'Accepted',
+            'Hired' => 'Accepted',
             'Rejected' => 'Rejected',
         ];
 
@@ -314,17 +307,12 @@ class JobController extends Controller
             ];
         });
 
-        $total = $applications->count();
-        $active = $applications->whereNotIn('status', ['Accepted', 'Rejected'])->count();
-        $interviews = $applications->where('status', 'Interview')->count();
-        $offers = $applications->where('status', 'Accepted')->count();
-
         return response()->json([
             'stats' => [
-                'total' => $total,
-                'active' => $active,
-                'interviews' => $interviews,
-                'offers' => $offers,
+                'total' => $applications->count(),
+                'active' => $applications->whereNotIn('status', ['Accepted', 'Rejected'])->count(),
+                'interviews' => $applications->where('status', 'Interview')->count(),
+                'offers' => $applications->where('status', 'Offer')->count(),
             ],
             'applications' => $mapped,
         ]);
@@ -336,7 +324,7 @@ class JobController extends Controller
 
         if (!$student) {
             return response()->json([
-                "message" => "Student profile not found"
+                'message' => 'Student profile not found'
             ], 404);
         }
 

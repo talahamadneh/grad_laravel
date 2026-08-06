@@ -77,12 +77,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/messages/{user}', [MessageController::class, 'show']);
     Route::post('/messages', [MessageController::class, 'store']);
 
-    //Notifications
-    Route::get('/notifications', [NotificationController::class, 'index']);
-    Route::patch('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
-    Route::patch('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
-    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
-
     //Settings
     Route::put('/settings/password', [SettingsController::class, 'changePassword']);
     Route::get('/settings/notifications', [SettingsController::class, 'getNotificationSettings']);
@@ -154,6 +148,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/company/interviews/{interview}/cancel', [InterviewController::class, 'cancel']);
     Route::patch('/company/interviews/{interview}/complete', [InterviewController::class, 'complete']);
 
+    //bulk schedule interviews
+    Route::post('/company/interviews/bulk-schedule', [CompanyController::class, 'bulkSchedule']);
+
     //interview feedback routes
     Route::post('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'store']);
     Route::get('/company/interviews/{interview}/feedback', [InterviewFeedbackController::class, 'show']);
@@ -167,6 +164,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/company/reports/monthly-applications', [ReportController::class, 'monthlyApplications']);
 
 
+    // Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::put('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::put('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 });
 
 

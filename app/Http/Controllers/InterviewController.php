@@ -4,6 +4,12 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Interview;
+use App\Models\ApplicationStatusHistory;
+use App\Services\NotificationService;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
+
+
 
 class InterviewController extends Controller
 {
@@ -96,6 +102,8 @@ class InterviewController extends Controller
             'status' => 'Scheduled'
         ]);
 
+        NotificationService::interviewRescheduled($interview->fresh(['application.student', 'application.jobPost.company']));
+
         return response()->json([
             'message' => 'Interview updated successfully.',
             'interview' => $interview
@@ -116,6 +124,8 @@ class InterviewController extends Controller
         $interview->update([
             'status' => 'Cancelled'
         ]);
+
+        NotificationService::interviewCancelled($interview->fresh(['application.student', 'application.jobPost.company']));
 
         return response()->json([
             'message' => 'Interview cancelled successfully.',
@@ -211,5 +221,101 @@ class InterviewController extends Controller
         }
 
         return response()->json($days);
+    }
+
+
+
+        public function bulkSchedule(Request $request)
+    {
+        $request->validate([
+            'application_ids' => 'required|array|min:1',
+            'application_ids.*' => 'exists:applications,id',
+            'interview_date' => 'required|date',
+            'start_time' => 'required',
+            'duration' => 'required|integer|min:5',
+            'type' => 'required|in:Online,Onsite',
+            'meeting_link' => 'nullable|string',
+            'location' => 'nullable|string',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+
+            $currentTime = Carbon::parse(
+                $request->interview_date . ' ' . $request->start_time
+            );
+
+            $count = 0;
+
+            foreach ($request->application_ids as $applicationId) {
+
+                $application = \App\Models\Application::findOrFail($applicationId);
+
+                if ($application->jobPost->company_id != auth()->user()->company->id) {
+
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => 'Unauthorized.'
+                    ], 403);
+                }
+
+                if (Interview::where('application_id', $application->id)->exists()) {
+
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => 'One or more selected candidates already have an interview scheduled.'
+                    ], 422);
+                }
+
+                $interview = Interview::create([
+                    'application_id' => $application->id,
+                    'interview_date' => $currentTime->format('Y-m-d H:i:s'),
+                    'type' => $request->type,
+                    'meeting_link' => $request->meeting_link,
+                    'location' => $request->location,
+                    'status' => 'Scheduled',
+                ]);
+
+                $application->update([
+                    'status' => 'Interview'
+                ]);
+
+                ApplicationStatusHistory::create([
+                    'application_id' => $application->id,
+                    'status' => 'Interview',
+                    'changed_at' => now(),
+                ]);
+
+                NotificationService::interviewScheduled(
+                    $interview->fresh([
+                        'application.student',
+                        'application.jobPost.company'
+                    ])
+                );
+
+                $count++;
+
+                $currentTime->addMinutes($request->duration);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Interviews scheduled successfully.',
+                'scheduled_count' => $count
+            ], 201);
+
+        } catch (\Exception $e) {
+
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Scheduling failed.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

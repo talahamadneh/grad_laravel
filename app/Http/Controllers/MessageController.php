@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Message;
 use App\Models\User;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 
 
@@ -140,6 +141,16 @@ class MessageController extends Controller
             'message' => $request->message,
             'is_read' => false,
         ]);
+
+        $receiver = User::find($request->receiver_id);
+
+        if ($receiver?->role === 'Student' && $request->user()->role === 'Company') {
+            $sender = $request->user();
+            $companyName = $sender->company->company_name ?? $sender->name;
+
+            NotificationService::newMessageFromCompany($request->receiver_id, $companyName);
+        }
+
         return response()->json([
             "success" => true,
             "message" => $message
