@@ -7,7 +7,6 @@ use App\Models\Notification;
 
 class NotificationController extends Controller
 {
-    // جميع الإشعارات
     public function index(Request $request)
     {
         $notifications = Notification::where('user_id', $request->user()->id)
@@ -39,7 +38,6 @@ class NotificationController extends Controller
     }
 
 
-    // عدد الإشعارات غير المقروءة
     public function unreadCount(Request $request)
     {
         return response()->json([
@@ -52,7 +50,6 @@ class NotificationController extends Controller
     }
 
 
-    // تعليم إشعار كمقروء
     public function markAsRead(Request $request, $id)
     {
         $notification = Notification::where('id', $id)
@@ -77,7 +74,6 @@ class NotificationController extends Controller
     }
 
 
-    // تعليم جميع الإشعارات كمقروءة
     public function markAllAsRead(Request $request)
     {
         Notification::where('user_id', $request->user()->id)
@@ -92,7 +88,6 @@ class NotificationController extends Controller
     }
 
 
-    // حذف إشعار
     public function destroy(Request $request, $id)
     {
         $notification = Notification::where('id', $id)

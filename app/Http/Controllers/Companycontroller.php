@@ -45,6 +45,8 @@ class CompanyController extends Controller
                     'company' => $company->company_name,
                     'views' => 0,
                     'posted' => optional($job->created_at)->diffForHumans(),
+                    'benefits' => $job->benefits ?? [],
+
                 ];
             });
 

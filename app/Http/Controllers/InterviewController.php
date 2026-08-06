@@ -288,7 +288,11 @@ class InterviewController extends Controller
                     'status' => 'Interview',
                     'changed_at' => now(),
                 ]);
-
+\Log::info('Before interview notification', [
+    'interview_id' => $interview->id,
+    'application_id' => $application->id,
+    'student_user_id' => $application->student->user_id ?? null,
+]);
                 NotificationService::interviewScheduled(
                     $interview->fresh([
                         'application.student',

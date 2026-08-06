@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Student;
 use App\Models\Skill;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class StudentController extends Controller
 {
@@ -63,9 +64,16 @@ class StudentController extends Controller
             ], 404);
         }
 
+        $user = $request->user();
+
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|max:255',
+            'email' => [
+                'sometimes',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($user->id),
+            ],
             'headline' => 'nullable|string|max:255',
             'bio' => 'nullable|string',
             'univ' => 'nullable|string|max:255',
@@ -79,6 +87,8 @@ class StudentController extends Controller
             'github' => 'nullable|string|max:255',
             'avatar' => 'nullable|string',
             'skills' => 'nullable|array',
+        ], [
+            'email.unique' => 'This email is already in use by another account.',
         ]);
 
         if ($validator->fails()) {
@@ -89,7 +99,6 @@ class StudentController extends Controller
 
         $validated = $validator->validated();
 
-        $user = $request->user();
         if (isset($validated['name'])) {
             $user->name = $validated['name'];
         }

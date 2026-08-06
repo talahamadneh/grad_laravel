@@ -9,6 +9,7 @@ use App\Models\Notification;
 use App\Models\NotificationSetting;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -43,10 +44,11 @@ class NotificationService
     {
         $application->loadMissing(['student', 'jobPost']);
 
-        return self::send(
+        return self::sendWithEmail(
             $application->student->user_id,
             'Application Submitted Successfully',
             "Your application for {$application->jobPost->title} has been submitted successfully.",
+            'Application Submitted Successfully',
             self::APPLICATION_UPDATES
         );
     }
@@ -85,6 +87,7 @@ class NotificationService
             )
         );
     }
+
     public static function offer(Application $application)
     {
         $companyName = self::companyName($application);
@@ -104,24 +107,49 @@ class NotificationService
         );
     }
 
-    public static function accepted(Application $application)
-    {
-        $companyName = self::companyName($application);
-        $jobTitle = $application->jobPost->title;
-        $message = "Congratulations!\n\nYou have been accepted for {$jobTitle}.";
+   public static function accepted(Application $application)
+{
+    $application->loadMissing([
+        'student.user',
+        'jobPost.company',
+        'interview'
+    ]);
 
-        return self::sendWithEmail(
-            $application->student->user_id,
+    $companyName = self::companyName($application);
+    $jobTitle = $application->jobPost->title;
+
+    $interview = $application->interview;
+
+    return self::sendWithEmail(
+        $application->student->user_id,
+        'Congratulations!',
+        "Congratulations! You have been accepted for {$jobTitle}.",
+        'Congratulations!',
+        self::APPLICATION_UPDATES,
+        self::structuredEmail(
             'Congratulations!',
-            $message,
-            'Congratulations!',
-            self::APPLICATION_UPDATES,
-            self::structuredEmail('Congratulations!', [
+            [
                 'Company Name' => $companyName,
                 'Job Title' => $jobTitle,
-            ], "Congratulations! You have been accepted for {$jobTitle}.")
-        );
-    }
+
+                'Interview Date' => $interview
+                    ? $interview->interview_date->format('Y-m-d')
+                    : 'N/A',
+
+                'Interview Time' => $interview
+                    ? $interview->interview_date->format('h:i A')
+                    : 'N/A',
+
+                'Interview Type' => $interview->type ?? 'N/A',
+
+                'Meeting Link' => $interview->meeting_link ?? 'N/A',
+
+                'Location' => $interview->location ?? 'N/A',
+            ],
+            "Congratulations! You have been accepted for {$jobTitle}."
+        )
+    );
+}
 
     public static function rejected(Application $application)
     {
@@ -234,10 +262,11 @@ class NotificationService
 
     public static function newMessageFromCompany(int $studentUserId, string $companyName)
     {
-        return self::send(
+        return self::sendWithEmail(
             $studentUserId,
             'New Message',
             "You have received a new message from {$companyName}.",
+            'New Message',
             self::MESSAGES
         );
     }
@@ -315,6 +344,9 @@ class NotificationService
         $user = User::find($userId);
 
         if (!$user || !$user->email) {
+            Log::warning('NotificationService::email skipped, no user or email', [
+                'user_id' => $userId,
+            ]);
             return;
         }
 
@@ -328,8 +360,19 @@ class NotificationService
                     $mail->to($user->email)->subject($subject);
                 });
             }
+
+            Log::info('NotificationService::email sent', [
+                'user_id' => $userId,
+                'email' => $user->email,
+                'subject' => $subject,
+            ]);
         } catch (Throwable $exception) {
-            report($exception);
+            Log::error('NotificationService::email failed', [
+                'user_id' => $userId,
+                'email' => $user->email,
+                'subject' => $subject,
+                'error' => $exception->getMessage(),
+            ]);
         }
     }
 
