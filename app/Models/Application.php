@@ -21,12 +21,15 @@ class Application extends Model
         'status',
         'match_score',
         'reviewed_at',
+        'match_analysis',
+        'match_source',
     ];
 
     protected $casts = [
         'applied_at' => 'datetime',
         'reviewed_at' => 'datetime',
         'match_score' => 'decimal:2',
+        'match_analysis' => 'array',
     ];
 
     public function student()

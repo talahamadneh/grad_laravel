@@ -285,10 +285,14 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
                 'job_id' => $application->jobPost->id,
                 'job' => $application->jobPost->title ?? '',
                 'status' => $application->status,
-                'match' => $match['match'],
-                'matching_skills' => $match['matching_skills'],
-                'missing_skills' => $match['missing_skills'],
-                'skills' => $student->skills
+               'match' => $match['match'],
+'matching_skills' => $match['matching_skills'],
+'missing_skills' => $match['missing_skills'],
+
+'match_source' => $application->match_source,
+'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
+
+'skills' => $student->skills
                     ->pluck('name')
                     ->values(),
                 'email' => $student->user->email ?? '',
@@ -368,7 +372,17 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
                 'file_path' => $application->resume->file_path,
                 'updated_at' => $application->resume->updated_at,
             ] : null,
-            'match' => $this->getApplicantMatch($application, $matchingService),
+'match' => [
+    'percentage' => $this->getApplicantMatch($application, $matchingService)['percentage'],
+    'matching_skills' => $this->getApplicantMatch($application, $matchingService)['matching_skills'],
+    'missing_skills' => $this->getApplicantMatch($application, $matchingService)['missing_skills'],
+    'source' => $application->match_source,
+    'analysis' => $application->match_analysis,
+    'reasons' => $this->generateMatchReasons(
+        $application,
+        $this->getApplicantMatch($application, $matchingService)
+    )
+],
             'notes' => $application->notes,
             'timeline' => $application->timeline,
             'ai_summary' => null,
@@ -377,6 +391,10 @@ Write 2-3 paragraphs describing the role, responsibilities, and what success loo
 
     private function generateMatchReasons($application, $match)
     {
+        if (!empty($application->match_analysis['matching_points'])) {
+            return $application->match_analysis['matching_points'];
+        }
+
         $reasons = [];
 
         if (count($match['matching_skills']) > 0) {
@@ -624,8 +642,17 @@ Provide a short professional hiring summary.
 
             'resume' => $application->resume,
 
-            'match' => $this->getApplicantMatch($application, $matchingService),
-
+'match' => [
+    'percentage' => $this->getApplicantMatch($application, $matchingService)['percentage'],
+    'matching_skills' => $this->getApplicantMatch($application, $matchingService)['matching_skills'],
+    'missing_skills' => $this->getApplicantMatch($application, $matchingService)['missing_skills'],
+    'source' => $application->match_source,
+    'analysis' => $application->match_analysis,
+    'reasons' => $this->generateMatchReasons(
+        $application,
+        $this->getApplicantMatch($application, $matchingService)
+    )
+],
             'notes' => $application->notes,
 
             'timeline' => $application->timeline,
@@ -730,10 +757,14 @@ Provide a short professional hiring summary.
                     return [
                         'id' => $application->id,
                         'application_id' => $application->id,
-                        'name' => $application->student->user->name ?? 'Applicant',
-                        'headline' => $application->student->headline ?? '',
-                        'avatar' => $application->student->avatar ?? null,
-                        'match' => (int) ($matchData['match'] ?? 0),
+'name' => $application->student->user->name ?? 'Applicant',
+'headline' => $application->student->headline ?? '',
+'avatar' => $application->student->avatar ?? null,
+
+'match' => (int) ($matchData['match'] ?? $application->match_score ?? 0),
+
+'match_source' => $application->match_source,
+'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
                         'status' => $application->status,
                     ];
 

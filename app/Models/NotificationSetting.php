@@ -15,7 +15,12 @@ class NotificationSetting extends Model
         'job_recommendations',
         'messages',
         'profile_views',
-        'resume_feedback'
+        'resume_feedback',
+        'company_applications',
+        'company_messages',
+        'company_matches',
+        'company_deadlines',
+        'company_interviews'
 
     ];
 
@@ -28,6 +33,11 @@ class NotificationSetting extends Model
         'messages'=>'boolean',
         'profile_views'=>'boolean',
         'resume_feedback'=>'boolean',
+        'company_applications'=>'boolean',
+        'company_messages'=>'boolean',
+        'company_matches'=>'boolean',
+        'company_deadlines'=>'boolean',
+        'company_interviews'=>'boolean',
 
     ];
 

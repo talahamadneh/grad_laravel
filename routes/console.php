@@ -9,3 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('notifications:send-reminders')->dailyAt('08:00');
+Schedule::command('notifications:send-company-reminders --summary=daily')->dailyAt('08:15');
+Schedule::command('notifications:send-company-reminders --summary=weekly')->weeklyOn(1, '08:30');

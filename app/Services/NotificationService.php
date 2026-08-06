@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Models\Application;
+use App\Models\Company;
 use App\Models\Interview;
 use App\Models\JobPost;
 use App\Models\Notification;
 use App\Models\NotificationSetting;
+use App\Models\Student;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +21,11 @@ class NotificationService
     public const INTERVIEW_NOTIFICATIONS = 'interview_notifications';
     public const JOB_RECOMMENDATIONS = 'job_recommendations';
     public const MESSAGES = 'messages';
+    public const COMPANY_APPLICATIONS = 'company_applications';
+    public const COMPANY_MESSAGES = 'company_messages';
+    public const COMPANY_MATCHES = 'company_matches';
+    public const COMPANY_DEADLINES = 'company_deadlines';
+    public const COMPANY_INTERVIEWS = 'company_interviews';
 
     public static function studentRegistered(User $user)
     {
@@ -50,6 +57,74 @@ class NotificationService
             "Your application for {$application->jobPost->title} has been submitted successfully.",
             'Application Submitted Successfully',
             self::APPLICATION_UPDATES
+        );
+    }
+
+    public static function newApplicationForCompany(Application $application)
+    {
+        $application->loadMissing(['student.user', 'jobPost.company.user']);
+
+        $companyUserId = $application->jobPost->company->user_id ?? null;
+
+        if (!$companyUserId) {
+            return null;
+        }
+
+        $studentName = $application->student->user->name ?? 'A candidate';
+        $jobTitle = $application->jobPost->title;
+
+        return self::send(
+            $companyUserId,
+            'New Job Application',
+            "{$studentName} applied for {$jobTitle}.",
+            self::COMPANY_APPLICATIONS
+        );
+    }
+
+    public static function matchingCandidateForCompany(Application $application, int $threshold = 75)
+    {
+        $application->loadMissing(['student.user', 'jobPost.company.user']);
+
+        if ((int) $application->match_score < $threshold) {
+            return null;
+        }
+
+        $companyUserId = $application->jobPost->company->user_id ?? null;
+
+        if (!$companyUserId) {
+            return null;
+        }
+
+        $studentName = $application->student->user->name ?? 'A candidate';
+        $jobTitle = $application->jobPost->title;
+        $score = (int) $application->match_score;
+
+        return self::sendOnceToday(
+            $companyUserId,
+            'Matching Candidate',
+            "{$studentName} is a {$score}% match for {$jobTitle}.",
+            self::COMPANY_MATCHES
+        );
+    }
+
+    public static function pendingCompanyReply(Application $application, int $daysWaiting = 3)
+    {
+        $application->loadMissing(['student.user', 'jobPost.company.user']);
+
+        $companyUserId = $application->jobPost->company->user_id ?? null;
+
+        if (!$companyUserId) {
+            return null;
+        }
+
+        $studentName = $application->student->user->name ?? 'A candidate';
+        $jobTitle = $application->jobPost->title;
+
+        return self::sendOnceToday(
+            $companyUserId,
+            'Application Waiting For Reply',
+            "{$studentName}'s application for {$jobTitle} has been waiting for {$daysWaiting}+ days.",
+            self::COMPANY_APPLICATIONS
         );
     }
 
@@ -234,6 +309,31 @@ class NotificationService
         );
     }
 
+    public static function companyInterviewReminder(Interview $interview)
+    {
+        $interview->loadMissing(['application.student.user', 'application.jobPost.company.user']);
+
+        $companyUserId = $interview->application->jobPost->company->user_id ?? null;
+
+        if (!$companyUserId) {
+            return null;
+        }
+
+        $dateTime = self::dateTime($interview);
+        $studentName = $interview->application->student->user->name ?? 'candidate';
+        $jobTitle = $interview->application->jobPost->title;
+        $message = "Reminder: {$studentName}'s interview for {$jobTitle} is scheduled on {$dateTime['date']} at {$dateTime['time']}.";
+
+        return self::sendOnceTodayWithEmail(
+            $companyUserId,
+            'Interview Reminder',
+            $message,
+            'Interview Reminder',
+            self::COMPANY_INTERVIEWS,
+            self::interviewEmail('Interview Reminder', $interview, $message)
+        );
+    }
+
     public static function jobDeadlineReminder(JobPost $job, int $userId, bool $isToday)
     {
         $title = $isToday ? 'Job Deadline Today' : 'Job Deadline Tomorrow';
@@ -260,6 +360,40 @@ class NotificationService
         );
     }
 
+    public static function companyJobDeadlineReminder(JobPost $job, bool $isToday)
+    {
+        $job->loadMissing('company.user');
+
+        $companyUserId = $job->company->user_id ?? null;
+
+        if (!$companyUserId) {
+            return null;
+        }
+
+        $title = $isToday ? 'Job Post Ends Today' : 'Job Post Ends Soon';
+
+        $message = $isToday
+            ? "{$job->title} reaches its deadline today."
+            : "{$job->title} reaches its deadline on {$job->deadline->format('Y-m-d')}.";
+
+        return self::sendOnceTodayWithEmail(
+            $companyUserId,
+            $title,
+            $message,
+            $title,
+            self::COMPANY_DEADLINES,
+            self::structuredEmail(
+                $title,
+                [
+                    'Job Title' => $job->title,
+                    'Deadline' => $job->deadline->format('Y-m-d'),
+                    'Status' => $job->status,
+                ],
+                $message
+            )
+        );
+    }
+
     public static function newMessageFromCompany(int $studentUserId, string $companyName)
     {
         return self::sendWithEmail(
@@ -269,6 +403,160 @@ class NotificationService
             'New Message',
             self::MESSAGES
         );
+    }
+
+    public static function newMessageForCompany(int $companyUserId, string $studentName)
+    {
+        return self::send(
+            $companyUserId,
+            'New Message',
+            "You have received a new message from {$studentName}.",
+            self::COMPANY_MESSAGES
+        );
+    }
+
+    public static function companyApplicationSummary(Company $company, string $period, $from, $to): void
+    {
+        $company->loadMissing('user');
+
+        if (!$company->user?->email) {
+            return;
+        }
+
+        if (!self::shouldSend($company->user_id, self::COMPANY_APPLICATIONS)) {
+            return;
+        }
+
+        $applications = Application::with(['student.user', 'jobPost'])
+            ->whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->whereBetween('applied_at', [$from, $to])
+            ->latest('applied_at')
+            ->get();
+
+        if ($applications->isEmpty()) {
+            return;
+        }
+
+        $subject = ucfirst($period) . ' Application Summary';
+        $rows = $applications
+            ->groupBy('job_post_id')
+            ->map(function ($items) {
+                $job = $items->first()->jobPost;
+
+                return [
+                    'Job Title' => $job->title ?? 'Job',
+                    'New Applications' => $items->count(),
+                    'Top Match' => (int) $items->max('match_score') . '%',
+                ];
+            })
+            ->values();
+
+        $details = [
+            'Company' => $company->company_name,
+            'Period' => ucfirst($period),
+            'New Applications' => $applications->count(),
+            'From' => $from->format('Y-m-d H:i'),
+            'To' => $to->format('Y-m-d H:i'),
+        ];
+
+        $jobRows = $rows
+            ->map(fn ($item) => '<tr><td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e($item['Job Title']) . '</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e((string) $item['New Applications']) . '</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e($item['Top Match']) . '</td></tr>')
+            ->implode('');
+
+        $html = self::structuredEmail($subject, $details, "Here is your {$period} summary of new applications.")
+            . '<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;margin-top:16px;">'
+            . '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:640px;">'
+            . '<tr><th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Job</th><th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Applications</th><th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Top Match</th></tr>'
+            . $jobRows
+            . '</table></div>';
+
+        self::email($company->user_id, $subject, "{$applications->count()} new applications received.", $html);
+    }
+
+    public static function companyWaitingReviewNudge(Company $company, int $daysWaiting = 7): void
+    {
+        $company->loadMissing('user');
+
+        if (!$company->user?->email) {
+            return;
+        }
+
+        if (!self::shouldSend($company->user_id, self::COMPANY_APPLICATIONS)) {
+            return;
+        }
+
+        $waitingCount = Application::whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->whereIn('status', ['Applied', 'Screening', 'Under Review'])
+            ->where('applied_at', '<=', now()->subDays($daysWaiting))
+            ->count();
+
+        if ($waitingCount === 0) {
+            return;
+        }
+
+        $shortlistedCount = Application::whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->where('status', 'Shortlisted')
+            ->count();
+
+        $interviewCount = Application::whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->where('status', 'Interview')
+            ->count();
+
+        $subject = 'Applicants Waiting For Review';
+        $message = "You have {$waitingCount} applicants waiting for review.";
+
+        $html = self::structuredEmail(
+            $subject,
+            [
+                'Applicants Waiting' => $waitingCount,
+                'Shortlisted' => $shortlistedCount,
+                'Interview' => $interviewCount,
+                'Waiting Since' => $daysWaiting . '+ days',
+            ],
+            $message
+        );
+
+        self::email($company->user_id, $subject, $message, $html);
+    }
+
+    public static function calculateApplicationMatchScore(Application $application): int
+    {
+        $application->loadMissing(['student.skills', 'jobPost.skills']);
+
+        return self::calculateJobStudentMatchScore($application->jobPost, $application->student);
+    }
+
+    public static function calculateJobStudentMatchScore(JobPost $job, Student $student): int
+    {
+        $studentSkills = $student->skills->pluck('id')->toArray();
+        $jobSkills = $job->skills->pluck('id')->toArray();
+        $score = 0;
+
+        if (count($jobSkills) > 0) {
+            $score += (count(array_intersect($studentSkills, $jobSkills)) / count($jobSkills)) * 80;
+        }
+
+        if ($student->location && $job->location && strtolower(trim($student->location)) === strtolower(trim($job->location))) {
+            $score += 10;
+        }
+
+        if ($student->preferred_employment_type && $job->employment_type && strtolower($student->preferred_employment_type) === strtolower($job->employment_type)) {
+            $score += 5;
+        }
+
+        if ($student->major && $job->required_major && strtolower($student->major) === strtolower($job->required_major)) {
+            $score += 5;
+        }
+
+        return (int) round(min($score, 100));
     }
 
     public static function send($userId, $title, $message, ?string $category = null)
@@ -387,6 +675,11 @@ class NotificationService
             self::INTERVIEW_NOTIFICATIONS,
             self::JOB_RECOMMENDATIONS,
             self::MESSAGES,
+            self::COMPANY_APPLICATIONS,
+            self::COMPANY_MESSAGES,
+            self::COMPANY_MATCHES,
+            self::COMPANY_DEADLINES,
+            self::COMPANY_INTERVIEWS,
         ];
 
         if (!in_array($category, $allowedCategories, true)) {
@@ -394,6 +687,10 @@ class NotificationService
         }
 
         $settings = NotificationSetting::firstOrCreate(['user_id' => $userId]);
+
+        if (!isset($settings->{$category})) {
+            return true;
+        }
 
         return (bool) $settings->{$category};
     }
