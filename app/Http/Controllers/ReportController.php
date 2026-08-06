@@ -4,13 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Application;
 use App\Models\Interview;
+use App\Models\InterviewFeedback;
 use App\Models\JobPost;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
 {
-    // Overview Cards
     public function overview()
     {
         $companyId = auth()->user()->company->id;
@@ -25,10 +25,10 @@ class ReportController extends Controller
             $q->where('company_id', $companyId);
         })->count();
 
-        $hiredCandidates = Application::whereHas('jobPost', function ($q) use ($companyId) {
-            $q->where('company_id', $companyId);
-        })
-            ->where('status', 'Hired')
+        $hiredCandidates = InterviewFeedback::where('final_decision', 'Accepted')
+            ->whereHas('interview.application.jobPost', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
             ->count();
 
         return response()->json([
@@ -39,7 +39,6 @@ class ReportController extends Controller
         ]);
     }
 
-    // Applications Per Job
     public function jobs()
     {
         $companyId = auth()->user()->company->id;
@@ -57,8 +56,6 @@ class ReportController extends Controller
         return response()->json($jobs);
     }
 
-
-    //Hiring Pipeline
     public function pipeline()
     {
         $companyId = auth()->user()->company->id;
@@ -70,19 +67,19 @@ class ReportController extends Controller
             ->groupBy('status')
             ->pluck('total', 'status');
 
+        $accepted = InterviewFeedback::where('final_decision', 'Accepted')
+            ->whereHas('interview.application.jobPost', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->count();
+
         return response()->json([
-            'Applied' => $statuses['Applied'] ?? 0,
-            'Screening' => $statuses['Screening'] ?? 0,
-            'Shortlisted' => $statuses['Shortlisted'] ?? 0,
-            'Interview' => $statuses['Interview'] ?? 0,
-            'Offer' => $statuses['Offer'] ?? 0,
-            'Hired' => $statuses['Hired'] ?? 0,
-            'Rejected' => $statuses['Rejected'] ?? 0,
-        ]);
+    'Accepted' => $accepted,
+    'Shortlisted' => $statuses['Shortlisted'] ?? 0,
+    'Rejected' => $statuses['Rejected'] ?? 0,
+]);
     }
 
-
-    // Monthly Applications
     public function monthlyApplications()
     {
         $companyId = auth()->user()->company->id;
