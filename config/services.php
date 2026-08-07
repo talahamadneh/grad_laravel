@@ -41,4 +41,10 @@ return [
         ])),
         'model' => env('GROQ_MODEL', 'llama-3.3-70b-versatile'),
     ],
+
+    'supabase' => [
+    'url' => env('SUPABASE_URL'),
+    'key' => env('SUPABASE_KEY'),
+],
+
 ];

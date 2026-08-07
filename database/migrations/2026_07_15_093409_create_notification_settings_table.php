@@ -19,6 +19,8 @@ return new class extends Migration
         ->constrained()
         ->cascadeOnDelete();
 
+
+    // Student notifications
     $table->boolean('application_updates')
         ->default(true);
 
@@ -36,6 +38,29 @@ return new class extends Migration
 
     $table->boolean('resume_feedback')
         ->default(true);
+
+
+    // Company notifications
+    $table->boolean('company_applications')
+        ->default(true);
+
+    $table->boolean('company_interviews')
+        ->default(true);
+
+    $table->boolean('company_messages')
+        ->default(true);
+
+    $table->boolean('company_deadlines')
+        ->default(true);
+
+    $table->boolean('company_matches')
+        ->default(true);
+
+
+    // Weekly summary
+    $table->boolean('weekly_application_summary')
+        ->default(true);
+
 
     $table->timestamps();
 

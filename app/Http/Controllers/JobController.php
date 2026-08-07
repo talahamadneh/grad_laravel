@@ -10,8 +10,6 @@ use App\Services\JobMatchingService;
 use App\Models\SavedJob;
 use App\Models\Application;
 use App\Models\Resume;
-use App\Models\PrivacySetting;
-use App\Services\AIJobMatchService;
 use App\Services\NotificationService;
 
 class JobController extends Controller
@@ -71,7 +69,6 @@ class JobController extends Controller
                 ->toArray();
 
             $jobs->getCollection()->transform(function ($job) use ($student, $savedIds) {
-
                 $job->is_saved = in_array($job->id, $savedIds);
 
                 $job->match = $this->jobMatchingService
@@ -167,7 +164,7 @@ class JobController extends Controller
         return response()->json($jobs);
     }
 
-public function applyJob(Request $request, $id, AIJobMatchService $aiJobMatch)
+    public function applyJob(Request $request, $id)
     {
         $student = Auth::user()->student;
 
@@ -202,7 +199,6 @@ public function applyJob(Request $request, $id, AIJobMatchService $aiJobMatch)
         ]);
 
         if ($request->filled('resume_id')) {
-
             $resume = Resume::where('id', $request->resume_id)
                 ->where('student_id', $student->id)
                 ->first();
@@ -212,9 +208,7 @@ public function applyJob(Request $request, $id, AIJobMatchService $aiJobMatch)
                     'message' => 'Invalid resume selected'
                 ], 422);
             }
-
         } else {
-
             $resume = Resume::where('student_id', $student->id)
                 ->latest()
                 ->first();
@@ -242,32 +236,21 @@ public function applyJob(Request $request, $id, AIJobMatchService $aiJobMatch)
             'resume'
         ]);
 
-        // Privacy settings of the company
-        $privacy = PrivacySetting::firstOrCreate(
-            [
-                'user_id' => $job->company->user_id
+        $score = NotificationService::calculateApplicationMatchScore($application);
+
+        $match = [
+            'score' => $score,
+            'analysis' => [
+                'level' => 'Pending AI Analysis',
+                'matching_points' => [],
+                'missing_points' => [],
+                'location_assessment' => null,
+                'skills_assessment' => null,
+                'recommendation' => null,
+                'source' => 'fallback',
             ],
-            [
-                'profile_visibility' => true,
-                'contact_visibility' => false,
-                'ai_resume_analysis' => true,
-                'ai_candidate_matching' => true,
-            ]
-        );
-
-        if ($privacy->ai_candidate_matching) {
-
-            $match = $aiJobMatch->analyze($application);
-
-        } else {
-
-            $match = [
-                'score' => null,
-                'analysis' => null,
-                'source' => 'disabled',
-            ];
-
-        }
+            'source' => 'fallback',
+        ];
 
         $application->update([
             'match_score' => $match['score'],

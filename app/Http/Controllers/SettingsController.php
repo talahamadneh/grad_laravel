@@ -8,7 +8,6 @@ use App\Models\NotificationSetting;
 use App\Models\PrivacySetting;
 use App\Models\Company;
 
-
 class SettingsController extends Controller
 {
     private array $notificationDefaults = [
@@ -23,6 +22,8 @@ class SettingsController extends Controller
         'company_matches' => true,
         'company_deadlines' => true,
         'company_interviews' => true,
+        'weekly_application_summary' => true,
+        'job_deadline_reminders' => true,
     ];
 
     private array $privacyDefaults = [
@@ -32,20 +33,14 @@ class SettingsController extends Controller
         'ai_candidate_matching' => true,
     ];
 
-
     public function changePassword(Request $request)
     {
-
         $request->validate([
-
             'current_password' => 'required',
             'password' => 'required|min:8|confirmed',
-
         ]);
 
-
         $user = $request->user();
-
 
         if (!Hash::check($request->current_password, $user->password)) {
             return response()->json([
@@ -53,50 +48,32 @@ class SettingsController extends Controller
             ], 422);
         }
 
-
         $user->update([
-
             'password' => Hash::make($request->password)
-
         ]);
-
 
         return response()->json([
-
             'message' => 'Password updated successfully'
-
         ]);
-
     }
-
-
 
     public function getNotificationSettings(Request $request)
     {
-
         $user = $request->user();
 
-
         $settings = NotificationSetting::firstOrCreate(
-
             [
                 'user_id' => $user->id
             ],
-
             $this->notificationDefaults
-
         );
 
-
         return response()->json($settings);
-
     }
 
     public function updateNotificationSettings(Request $request)
     {
-
         $request->validate([
-
             'application_updates' => 'boolean',
             'interview_notifications' => 'boolean',
             'job_recommendations' => 'boolean',
@@ -107,132 +84,80 @@ class SettingsController extends Controller
             'company_messages' => 'boolean',
             'company_matches' => 'boolean',
             'company_deadlines' => 'boolean',
-            'company_interviews' => 'boolean'
-
+            'company_interviews' => 'boolean',
+            'weekly_application_summary' => 'boolean',
+            'job_deadline_reminders' => 'boolean',
         ]);
 
-
         $settings = NotificationSetting::updateOrCreate(
-
             [
                 'user_id' => $request->user()->id
             ],
-
             $request->all()
-
         );
 
-
         return response()->json([
-
             'message' => 'Notification settings updated successfully',
             'settings' => $settings
-
         ]);
-
     }
-
 
     public function getPrivacySettings(Request $request)
     {
-
         $user = $request->user();
 
-
         $settings = PrivacySetting::firstOrCreate(
-
             [
                 'user_id' => $user->id
             ],
-
             $this->privacyDefaults
-
         );
 
-
         return response()->json($settings);
-
     }
-
-
 
     public function updatePrivacySettings(Request $request)
     {
-
         $request->validate([
-
             'profile_visibility' => 'boolean',
             'contact_visibility' => 'boolean',
             'ai_resume_analysis' => 'boolean',
             'ai_candidate_matching' => 'boolean'
-
         ]);
 
-
         $settings = PrivacySetting::updateOrCreate(
-
             [
                 'user_id' => $request->user()->id
             ],
-
             $request->all()
-
         );
 
-
         return response()->json([
-
             'message' => 'Privacy settings updated successfully',
             'settings' => $settings
-
         ]);
-
     }
-
-
-
 
     public function deleteAccount(Request $request)
     {
-
         $request->validate([
-
             'password' => 'required'
-
         ]);
-
 
         $user = $request->user();
 
-
         if (!Hash::check($request->password, $user->password)) {
-
             return response()->json([
-
                 'message' => 'Password incorrect'
-
             ], 422);
-
         }
 
-
-
-        // delete tokens (logout all devices)
-
         $user->tokens()->delete();
-
-
-
         $user->delete();
 
-
-
         return response()->json([
-
             'message' => 'Account deleted successfully'
-
         ]);
-
     }
 
     public function companySettings(Request $request)
@@ -297,8 +222,8 @@ class SettingsController extends Controller
             ],
             'emails' => [
                 'interview_reminders' => (bool) $notifications->company_interviews,
-                'job_deadlines' => (bool) $notifications->company_deadlines,
-                'daily_weekly_application_summary' => (bool) $notifications->company_applications,
+                'job_deadlines' => (bool) $notifications->job_deadline_reminders,
+                'daily_weekly_application_summary' => (bool) $notifications->weekly_application_summary,
                 'waiting_review_nudge' => (bool) $notifications->company_applications,
             ],
             'privacy' => [
@@ -309,7 +234,4 @@ class SettingsController extends Controller
             ],
         ]);
     }
-
-
-
 }

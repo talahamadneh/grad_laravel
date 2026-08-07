@@ -24,10 +24,20 @@ class AuthController extends Controller
             'industry' => 'nullable|string|max:255',
         ]);
 
+        $requiredSuffix = $data['role'] === 'student'
+            ? '@gmail.com'
+            : '@company.com';
+
+        if (!str_ends_with(strtolower($data['email']), $requiredSuffix)) {
+            return response()->json([
+                'message' => $data['role'] === 'student'
+                    ? 'Student email must end with @gmail.com'
+                    : 'Company email must end with @company.com',
+            ], 422);
+        }
+
         try {
-
             DB::transaction(function () use ($data, &$user) {
-
                 $user = User::create([
                     'name' => $data['name'],
                     'email' => $data['email'],
@@ -36,22 +46,17 @@ class AuthController extends Controller
                 ]);
 
                 if ($data['role'] === 'student') {
-
                     Student::create([
-                        'user_id' => $user->id
+                        'user_id' => $user->id,
                     ]);
-
                 } else {
-
                     Company::create([
                         'user_id' => $user->id,
                         'company_name' => $data['name'],
                         'industry' => $data['industry'] ?? null,
                         'approval_status' => 'Pending',
                     ]);
-
                 }
-
             });
 
             if ($data['role'] === 'student') {
@@ -60,16 +65,13 @@ class AuthController extends Controller
 
             return response()->json([
                 'message' => 'User registered successfully',
-                'user' => $user
+                'user' => $user,
             ], 201);
-
         } catch (Exception $e) {
-
             return response()->json([
                 'message' => 'Registration failed',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
-
         }
     }
 
@@ -78,20 +80,32 @@ class AuthController extends Controller
         $data = $request->validate([
             'email' => 'required|email',
             'password' => 'required',
-            'role' => 'required|in:student,company,admin'
+            'role' => 'required|in:student,company,admin',
         ]);
+
+        $requiredSuffix = match ($data['role']) {
+            'student' => '@gmail.com',
+            'company' => '@company.com',
+            'admin' => '@admin.com',
+        };
+
+        if (!str_ends_with(strtolower($data['email']), $requiredSuffix)) {
+            return response()->json([
+                'message' => 'Email must end with ' . $requiredSuffix . ' for this account type',
+            ], 422);
+        }
 
         $user = User::where('email', $data['email'])->first();
 
         if (!$user || !Hash::check($data['password'], $user->password)) {
             return response()->json([
-                'message' => 'Invalid credentials'
+                'message' => 'Invalid credentials',
             ], 401);
         }
 
         if (strtolower($user->role) !== strtolower($data['role'])) {
             return response()->json([
-                'message' => 'This account is not registered as a ' . $data['role']
+                'message' => 'This account is not registered as a ' . $data['role'],
             ], 401);
         }
 
@@ -100,7 +114,7 @@ class AuthController extends Controller
 
             if ($company && $company->approval_status !== 'Approved') {
                 return response()->json([
-                    'message' => 'Your company account is pending approval. Please wait for admin confirmation.'
+                    'message' => 'Your company account is pending approval. Please wait for admin confirmation.',
                 ], 403);
             }
         }
@@ -126,7 +140,7 @@ class AuthController extends Controller
     public function forgotPassword(Request $request)
     {
         $request->validate([
-            'email' => 'required|email'
+            'email' => 'required|email',
         ]);
 
         $status = Password::sendResetLink(
@@ -134,15 +148,13 @@ class AuthController extends Controller
         );
 
         if ($status === Password::RESET_LINK_SENT) {
-
             return response()->json([
-                'message' => __($status)
+                'message' => __($status),
             ], 200);
-
         }
 
         return response()->json([
-            'message' => __($status)
+            'message' => __($status),
         ], 400);
     }
 
@@ -156,7 +168,7 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
-            'message' => 'Logged out successfully'
+            'message' => 'Logged out successfully',
         ]);
     }
 }

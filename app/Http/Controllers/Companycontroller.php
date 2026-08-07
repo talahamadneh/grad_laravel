@@ -15,6 +15,7 @@ use App\Services\JobMatchingService;
 use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class CompanyController extends Controller
 {
@@ -755,17 +756,15 @@ Provide a short professional hiring summary.
                     );
 
                     return [
-                        'id' => $application->id,
-                        'application_id' => $application->id,
+                     'id' => $application->id,
+'application_id' => $application->id,
 'name' => $application->student->user->name ?? 'Applicant',
 'headline' => $application->student->headline ?? '',
 'avatar' => $application->student->avatar ?? null,
-
-'match' => (int) ($matchData['match'] ?? $application->match_score ?? 0),
-
+'match' => (int) ($matchData['match'] ?? 0),
 'match_source' => $application->match_source,
 'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
-                        'status' => $application->status,
+'status' => $application->status,
                     ];
 
                 }),
