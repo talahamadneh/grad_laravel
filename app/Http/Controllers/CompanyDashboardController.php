@@ -12,6 +12,7 @@ class CompanyDashboardController extends Controller
 {
     public function index(Request $request, JobMatchingService $matchingService)
     {
+        
         $company = Auth::user()->company;
 
         if (!$company) {

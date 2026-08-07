@@ -26,6 +26,7 @@ class NotificationService
     public const COMPANY_MATCHES = 'company_matches';
     public const COMPANY_DEADLINES = 'company_deadlines';
     public const COMPANY_INTERVIEWS = 'company_interviews';
+    public const WEEKLY_APPLICATION_SUMMARY = 'weekly_application_summary';
 
     public static function studentRegistered(User $user)
     {
@@ -73,10 +74,11 @@ class NotificationService
         $studentName = $application->student->user->name ?? 'A candidate';
         $jobTitle = $application->jobPost->title;
 
-        return self::send(
+        return self::sendWithEmail(
             $companyUserId,
             'New Job Application',
             "{$studentName} applied for {$jobTitle}.",
+            'New Job Application',
             self::COMPANY_APPLICATIONS
         );
     }
@@ -182,49 +184,49 @@ class NotificationService
         );
     }
 
-   public static function accepted(Application $application)
-{
-    $application->loadMissing([
-        'student.user',
-        'jobPost.company',
-        'interview'
-    ]);
+    public static function accepted(Application $application)
+    {
+        $application->loadMissing([
+            'student.user',
+            'jobPost.company',
+            'interview'
+        ]);
 
-    $companyName = self::companyName($application);
-    $jobTitle = $application->jobPost->title;
+        $companyName = self::companyName($application);
+        $jobTitle = $application->jobPost->title;
 
-    $interview = $application->interview;
+        $interview = $application->interview;
 
-    return self::sendWithEmail(
-        $application->student->user_id,
-        'Congratulations!',
-        "Congratulations! You have been accepted for {$jobTitle}.",
-        'Congratulations!',
-        self::APPLICATION_UPDATES,
-        self::structuredEmail(
+        return self::sendWithEmail(
+            $application->student->user_id,
             'Congratulations!',
-            [
-                'Company Name' => $companyName,
-                'Job Title' => $jobTitle,
+            "Congratulations! You have been accepted for {$jobTitle}.",
+            'Congratulations!',
+            self::APPLICATION_UPDATES,
+            self::structuredEmail(
+                'Congratulations!',
+                [
+                    'Company Name' => $companyName,
+                    'Job Title' => $jobTitle,
 
-                'Interview Date' => $interview
-                    ? $interview->interview_date->format('Y-m-d')
-                    : 'N/A',
+                    'Interview Date' => $interview
+                        ? $interview->interview_date->format('Y-m-d')
+                        : 'N/A',
 
-                'Interview Time' => $interview
-                    ? $interview->interview_date->format('h:i A')
-                    : 'N/A',
+                    'Interview Time' => $interview
+                        ? $interview->interview_date->format('h:i A')
+                        : 'N/A',
 
-                'Interview Type' => $interview->type ?? 'N/A',
+                    'Interview Type' => $interview->type ?? 'N/A',
 
-                'Meeting Link' => $interview->meeting_link ?? 'N/A',
+                    'Meeting Link' => $interview->meeting_link ?? 'N/A',
 
-                'Location' => $interview->location ?? 'N/A',
-            ],
-            "Congratulations! You have been accepted for {$jobTitle}."
-        )
-    );
-}
+                    'Location' => $interview->location ?? 'N/A',
+                ],
+                "Congratulations! You have been accepted for {$jobTitle}."
+            )
+        );
+    }
 
     public static function rejected(Application $application)
     {
@@ -423,7 +425,7 @@ class NotificationService
             return;
         }
 
-        if (!self::shouldSend($company->user_id, self::COMPANY_APPLICATIONS)) {
+        if (!self::shouldSend($company->user_id, self::WEEKLY_APPLICATION_SUMMARY)) {
             return;
         }
 
@@ -680,17 +682,41 @@ class NotificationService
             self::COMPANY_MATCHES,
             self::COMPANY_DEADLINES,
             self::COMPANY_INTERVIEWS,
+            self::WEEKLY_APPLICATION_SUMMARY,
         ];
 
         if (!in_array($category, $allowedCategories, true)) {
             return true;
         }
 
-        $settings = NotificationSetting::firstOrCreate(['user_id' => $userId]);
+        $settings = NotificationSetting::firstOrCreate(
+            ['user_id' => $userId],
+            [
+                'application_updates' => true,
+                'interview_notifications' => true,
+                'job_recommendations' => true,
+                'messages' => true,
+                'profile_views' => true,
+                'resume_feedback' => true,
+                'company_applications' => true,
+                'company_messages' => true,
+                'company_matches' => true,
+                'company_deadlines' => true,
+                'company_interviews' => true,
+                'weekly_application_summary' => true,
+            ]
+        );
 
         if (!isset($settings->{$category})) {
             return true;
         }
+
+        Log::info('Notification setting check', [
+            'user_id' => $userId,
+            'category' => $category,
+            'value' => $settings->{$category},
+            'settings' => $settings->toArray(),
+        ]);
 
         return (bool) $settings->{$category};
     }

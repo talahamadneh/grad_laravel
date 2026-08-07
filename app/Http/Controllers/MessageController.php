@@ -6,7 +6,8 @@ use App\Models\Message;
 use App\Models\User;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
-
+use App\Events\MessageSent;
+use App\Services\SupabaseRealtimeService;
 
 class MessageController extends Controller
 {
@@ -129,38 +130,57 @@ class MessageController extends Controller
 
 
     public function store(Request $request)
-    {
-        $request->validate([
-            'receiver_id' => 'required|exists:users,id',
-            'message' => 'required|string|max:2000',
-        ]);
+{
+    $request->validate([
+        'receiver_id' => 'required|exists:users,id',
+        'message' => 'required|string|max:2000',
+    ]);
 
-        $message = Message::create([
-            'sender_id' => $request->user()->id,
-            'receiver_id' => $request->receiver_id,
-            'message' => $request->message,
-            'is_read' => false,
-        ]);
 
-        $receiver = User::find($request->receiver_id);
+    $message = Message::create([
+        'sender_id' => $request->user()->id,
+        'receiver_id' => $request->receiver_id,
+        'message' => $request->message,
+        'is_read' => false,
+    ]);
 
-        if ($receiver?->role === 'Student' && $request->user()->role === 'Company') {
-            $sender = $request->user();
-            $companyName = $sender->company->company_name ?? $sender->name;
 
-            NotificationService::newMessageFromCompany($request->receiver_id, $companyName);
-        }
+    // Send realtime event to Supabase
+    SupabaseRealtimeService::sendMessageEvent($message);
 
-        if ($receiver?->role === 'Company' && $request->user()->role === 'Student') {
-            $sender = $request->user();
-            $studentName = $sender->name;
 
-            NotificationService::newMessageForCompany($request->receiver_id, $studentName);
-        }
+    $receiver = User::find($request->receiver_id);
 
-        return response()->json([
-            "success" => true,
-            "message" => $message
-        ], 201);
+
+    if ($receiver?->role === 'Student' && $request->user()->role === 'Company') {
+
+        $sender = $request->user();
+        $companyName = $sender->company->company_name ?? $sender->name;
+
+
+        NotificationService::newMessageFromCompany(
+            $request->receiver_id,
+            $companyName
+        );
     }
+
+
+    if ($receiver?->role === 'Company' && $request->user()->role === 'Student') {
+
+        $sender = $request->user();
+        $studentName = $sender->name;
+
+
+        NotificationService::newMessageForCompany(
+            $request->receiver_id,
+            $studentName
+        );
+    }
+
+
+    return response()->json([
+        "success" => true,
+        "message" => $message
+    ], 201);
+}
 }
