@@ -6,10 +6,31 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Models\NotificationSetting;
 use App\Models\PrivacySetting;
+use App\Models\Company;
 
 
 class SettingsController extends Controller
 {
+    private array $notificationDefaults = [
+        'application_updates' => true,
+        'interview_notifications' => true,
+        'job_recommendations' => true,
+        'messages' => true,
+        'profile_views' => true,
+        'resume_feedback' => true,
+        'company_applications' => true,
+        'company_messages' => true,
+        'company_matches' => true,
+        'company_deadlines' => true,
+        'company_interviews' => true,
+    ];
+
+    private array $privacyDefaults = [
+        'profile_visibility' => true,
+        'contact_visibility' => false,
+        'ai_resume_analysis' => true,
+        'ai_candidate_matching' => true,
+    ];
 
 
     public function changePassword(Request $request)
@@ -26,24 +47,23 @@ class SettingsController extends Controller
         $user = $request->user();
 
 
-        if(!Hash::check($request->current_password, $user->password))
-        {
+        if (!Hash::check($request->current_password, $user->password)) {
             return response()->json([
-                'message'=>'Current password is incorrect'
-            ],422);
+                'message' => 'Current password is incorrect'
+            ], 422);
         }
 
 
         $user->update([
 
-            'password'=>Hash::make($request->password)
+            'password' => Hash::make($request->password)
 
         ]);
 
 
         return response()->json([
 
-            'message'=>'Password updated successfully'
+            'message' => 'Password updated successfully'
 
         ]);
 
@@ -60,22 +80,10 @@ class SettingsController extends Controller
         $settings = NotificationSetting::firstOrCreate(
 
             [
-                'user_id'=>$user->id
+                'user_id' => $user->id
             ],
 
-            [
-                'application_updates'=>true,
-                'interview_notifications'=>true,
-                'job_recommendations'=>true,
-                'messages'=>true,
-                'profile_views'=>true,
-                'resume_feedback'=>true,
-                'company_applications'=>true,
-                'company_messages'=>true,
-                'company_matches'=>true,
-                'company_deadlines'=>true,
-                'company_interviews'=>true
-            ]
+            $this->notificationDefaults
 
         );
 
@@ -89,17 +97,17 @@ class SettingsController extends Controller
 
         $request->validate([
 
-            'application_updates'=>'boolean',
-            'interview_notifications'=>'boolean',
-            'job_recommendations'=>'boolean',
-            'messages'=>'boolean',
-            'profile_views'=>'boolean',
-            'resume_feedback'=>'boolean',
-            'company_applications'=>'boolean',
-            'company_messages'=>'boolean',
-            'company_matches'=>'boolean',
-            'company_deadlines'=>'boolean',
-            'company_interviews'=>'boolean'
+            'application_updates' => 'boolean',
+            'interview_notifications' => 'boolean',
+            'job_recommendations' => 'boolean',
+            'messages' => 'boolean',
+            'profile_views' => 'boolean',
+            'resume_feedback' => 'boolean',
+            'company_applications' => 'boolean',
+            'company_messages' => 'boolean',
+            'company_matches' => 'boolean',
+            'company_deadlines' => 'boolean',
+            'company_interviews' => 'boolean'
 
         ]);
 
@@ -107,7 +115,7 @@ class SettingsController extends Controller
         $settings = NotificationSetting::updateOrCreate(
 
             [
-                'user_id'=>$request->user()->id
+                'user_id' => $request->user()->id
             ],
 
             $request->all()
@@ -117,8 +125,8 @@ class SettingsController extends Controller
 
         return response()->json([
 
-            'message'=>'Notification settings updated successfully',
-            'settings'=>$settings
+            'message' => 'Notification settings updated successfully',
+            'settings' => $settings
 
         ]);
 
@@ -134,14 +142,10 @@ class SettingsController extends Controller
         $settings = PrivacySetting::firstOrCreate(
 
             [
-                'user_id'=>$user->id
+                'user_id' => $user->id
             ],
 
-            [
-                'profile_visibility'=>true,
-                'contact_visibility'=>false,
-                'ai_resume_analysis'=>true
-            ]
+            $this->privacyDefaults
 
         );
 
@@ -157,9 +161,10 @@ class SettingsController extends Controller
 
         $request->validate([
 
-            'profile_visibility'=>'boolean',
-            'contact_visibility'=>'boolean',
-            'ai_resume_analysis'=>'boolean'
+            'profile_visibility' => 'boolean',
+            'contact_visibility' => 'boolean',
+            'ai_resume_analysis' => 'boolean',
+            'ai_candidate_matching' => 'boolean'
 
         ]);
 
@@ -167,7 +172,7 @@ class SettingsController extends Controller
         $settings = PrivacySetting::updateOrCreate(
 
             [
-                'user_id'=>$request->user()->id
+                'user_id' => $request->user()->id
             ],
 
             $request->all()
@@ -177,8 +182,8 @@ class SettingsController extends Controller
 
         return response()->json([
 
-            'message'=>'Privacy settings updated successfully',
-            'settings'=>$settings
+            'message' => 'Privacy settings updated successfully',
+            'settings' => $settings
 
         ]);
 
@@ -192,7 +197,7 @@ class SettingsController extends Controller
 
         $request->validate([
 
-            'password'=>'required'
+            'password' => 'required'
 
         ]);
 
@@ -200,14 +205,13 @@ class SettingsController extends Controller
         $user = $request->user();
 
 
-        if(!Hash::check($request->password, $user->password))
-        {
+        if (!Hash::check($request->password, $user->password)) {
 
             return response()->json([
 
-                'message'=>'Password incorrect'
+                'message' => 'Password incorrect'
 
-            ],422);
+            ], 422);
 
         }
 
@@ -225,10 +229,85 @@ class SettingsController extends Controller
 
         return response()->json([
 
-            'message'=>'Account deleted successfully'
+            'message' => 'Account deleted successfully'
 
         ]);
 
+    }
+
+    public function companySettings(Request $request)
+    {
+        $user = $request->user();
+
+        if ($user->role !== 'Company') {
+            return response()->json([
+                'message' => 'Only company accounts can access company settings.'
+            ], 403);
+        }
+
+        $company = Company::where('user_id', $user->id)->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
+        }
+
+        $notifications = NotificationSetting::firstOrCreate(
+            ['user_id' => $user->id],
+            $this->notificationDefaults
+        );
+
+        $privacy = PrivacySetting::firstOrCreate(
+            ['user_id' => $user->id],
+            $this->privacyDefaults
+        );
+
+        return response()->json([
+            'account' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+            ],
+            'company' => [
+                'id' => $company->id,
+                'company_name' => $company->company_name,
+                'industry' => $company->industry,
+                'description' => $company->description,
+                'website' => $company->website,
+                'phone' => $company->phone,
+                'location' => $company->location,
+                'company_size' => $company->company_size,
+                'stage' => $company->stage,
+                'founded_year' => $company->founded_year,
+                'logo' => $company->logo,
+                'cover_image' => $company->cover_image,
+                'values' => $company->values ?? [],
+                'benefits' => $company->benefits ?? [],
+                'is_verified' => (bool) $company->is_verified,
+                'approval_status' => $company->approval_status,
+            ],
+            'notifications' => [
+                'new_applications' => (bool) $notifications->company_applications,
+                'messages' => (bool) $notifications->company_messages,
+                'matching_candidates' => (bool) $notifications->company_matches,
+                'job_deadlines' => (bool) $notifications->company_deadlines,
+                'interview_reminders' => (bool) $notifications->company_interviews,
+            ],
+            'emails' => [
+                'interview_reminders' => (bool) $notifications->company_interviews,
+                'job_deadlines' => (bool) $notifications->company_deadlines,
+                'daily_weekly_application_summary' => (bool) $notifications->company_applications,
+                'waiting_review_nudge' => (bool) $notifications->company_applications,
+            ],
+            'privacy' => [
+                'profile_visibility' => (bool) $privacy->profile_visibility,
+                'contact_visibility' => (bool) $privacy->contact_visibility,
+                'ai_resume_analysis' => (bool) $privacy->ai_resume_analysis,
+                'ai_candidate_matching' => (bool) $privacy->ai_candidate_matching,
+            ],
+        ]);
     }
 
 

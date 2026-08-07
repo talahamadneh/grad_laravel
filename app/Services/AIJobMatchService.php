@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Application;
 use App\Models\JobPost;
 use App\Models\Student;
+use App\Models\PrivacySetting;
 use Throwable;
 
 class AIJobMatchService

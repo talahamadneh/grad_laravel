@@ -13,16 +13,18 @@ class PrivacySetting extends Model
         'user_id',
         'profile_visibility',
         'contact_visibility',
-        'ai_resume_analysis'
+        'ai_resume_analysis',
+        'ai_candidate_matching'
 
     ];
 
 
     protected $casts = [
 
-        'profile_visibility'=>'boolean',
-        'contact_visibility'=>'boolean',
-        'ai_resume_analysis'=>'boolean'
+        'profile_visibility' => 'boolean',
+        'contact_visibility' => 'boolean',
+        'ai_resume_analysis' => 'boolean',
+        'ai_candidate_matching' => 'boolean'
 
     ];
 
