@@ -4,13 +4,19 @@ namespace App\Services;
 
 use App\Models\JobPost;
 use App\Models\SavedJob;
+use App\Models\Resume;
 
 class JobMatchingService
 {
     public function getRecommendedJobs($student)
     {
-        $studentSkills = $student->skills()
-            ->pluck('skills.id')
+        $resume = Resume::where('student_id', $student->id)
+            ->latest()
+            ->first();
+
+        $studentSkills = collect($resume?->skills ?? [])
+            ->pluck('name')
+            ->map(fn($skill) => strtolower(trim($skill)))
             ->toArray();
 
         $savedIds = SavedJob::where('student_id', $student->id)
@@ -27,31 +33,20 @@ class JobMatchingService
         $recommendedJobs = $jobs->map(function ($job) use ($student, $studentSkills, $savedIds) {
 
             $jobSkills = $job->skills
-                ->pluck('id')
-                ->toArray();
-
-            $matchedSkillIds = array_intersect(
-                $studentSkills,
-                $jobSkills
-            );
-
-            $matchingSkills = $job->skills
-                ->whereIn('id', $matchedSkillIds)
                 ->pluck('name')
-                ->values()
+                ->map(fn($skill) => strtolower(trim($skill)))
                 ->toArray();
 
-            $missingSkills = $job->skills
-                ->whereNotIn('id', $studentSkills)
-                ->pluck('name')
-                ->values()
-                ->toArray();
+            $matchingSkills = array_values(array_intersect($studentSkills, $jobSkills));
+
+            $missingSkills = array_values(array_diff($jobSkills, $studentSkills));
+
+            $matchedSkillsCount = count($matchingSkills);
+            $totalSkillsCount = count($jobSkills);
 
             $reasons = [];
 
-            $totalSkillsCount = count($jobSkills);
-            $matchedSkillsCount = count($matchedSkillIds);
-            
+
             $skillScore = ($matchedSkillsCount / max($totalSkillsCount, 1)) * 80;
 
             if ($matchedSkillsCount > 0) {
@@ -125,33 +120,28 @@ class JobMatchingService
 
     public function calculateMatch($student, $job)
     {
-        $studentSkills = $student->skills()
-            ->pluck('skills.id')
+        $resume = Resume::where('student_id', $student->id)
+            ->latest()
+            ->first();
+
+        $studentSkills = collect($resume?->skills ?? [])
+            ->pluck('name')
+            ->map(fn($skill) => strtolower(trim($skill)))
             ->toArray();
 
         $jobSkills = $job->skills
-            ->pluck('id')
-            ->toArray();
-
-        $matchedSkillIds = array_intersect(
-            $studentSkills,
-            $jobSkills
-        );
-
-        $matchingSkills = $job->skills
-            ->whereIn('id', $matchedSkillIds)
             ->pluck('name')
-            ->values()
+            ->map(fn($skill) => strtolower(trim($skill)))
             ->toArray();
 
-        $missingSkills = $job->skills
-            ->whereNotIn('id', $studentSkills)
-            ->pluck('name')
-            ->values()
-            ->toArray();
+        $matchingSkills = array_values(array_intersect($studentSkills, $jobSkills));
 
+        $missingSkills = array_values(array_diff($jobSkills, $studentSkills));
+
+        $matchedSkillsCount = count($matchingSkills);
         $totalSkillsCount = count($jobSkills);
-        $matchedSkillsCount = count($matchedSkillIds);
+
+
 
         $skillScore = ($matchedSkillsCount / max($totalSkillsCount, 1)) * 80;
 
