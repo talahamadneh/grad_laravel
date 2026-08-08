@@ -14,7 +14,6 @@ use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
-use App\Services\SupabaseNotificationService;
 
 class NotificationService
 {
@@ -178,10 +177,14 @@ class NotificationService
             $message,
             'Job Offer',
             self::APPLICATION_UPDATES,
-            self::structuredEmail('Job Offer', [
-                'Company Name' => $companyName,
-                'Job Title' => $jobTitle,
-            ], 'Congratulations! You have received a Job Offer. Please check your dashboard for more details.')
+            self::structuredEmail(
+                'Job Offer',
+                [
+                    'Company Name' => $companyName,
+                    'Job Title' => $jobTitle,
+                ],
+                'Congratulations! You have received a Job Offer. Please check your dashboard for more details.'
+            )
         );
     }
 
@@ -195,7 +198,6 @@ class NotificationService
 
         $companyName = self::companyName($application);
         $jobTitle = $application->jobPost->title;
-
         $interview = $application->interview;
 
         return self::sendWithEmail(
@@ -209,19 +211,14 @@ class NotificationService
                 [
                     'Company Name' => $companyName,
                     'Job Title' => $jobTitle,
-
                     'Interview Date' => $interview
                         ? $interview->interview_date->format('Y-m-d')
                         : 'N/A',
-
                     'Interview Time' => $interview
                         ? $interview->interview_date->format('h:i A')
                         : 'N/A',
-
                     'Interview Type' => $interview->type ?? 'N/A',
-
                     'Meeting Link' => $interview->meeting_link ?? 'N/A',
-
                     'Location' => $interview->location ?? 'N/A',
                 ],
                 "Congratulations! You have been accepted for {$jobTitle}."
@@ -262,7 +259,11 @@ class NotificationService
             "Your interview for {$jobTitle} has been scheduled.",
             'Interview Invitation',
             self::INTERVIEW_NOTIFICATIONS,
-            self::interviewEmail('Interview Invitation', $interview, 'Your interview has been scheduled.')
+            self::interviewEmail(
+                'Interview Invitation',
+                $interview,
+                'Your interview has been scheduled.'
+            )
         );
     }
 
@@ -276,13 +277,19 @@ class NotificationService
             "Your interview for {$interview->application->jobPost->title} has been rescheduled.",
             'Interview Rescheduled',
             self::INTERVIEW_NOTIFICATIONS,
-            self::interviewEmail('Interview Rescheduled', $interview, 'Your interview has been rescheduled.', true)
+            self::interviewEmail(
+                'Interview Rescheduled',
+                $interview,
+                'Your interview has been rescheduled.',
+                true
+            )
         );
     }
 
     public static function interviewCancelled(Interview $interview)
     {
         $interview->loadMissing(['application.student', 'application.jobPost.company']);
+
         $message = "Unfortunately, your interview has been cancelled.\n\nThe company may contact you again if another interview is scheduled.";
 
         return self::sendWithEmail(
@@ -291,15 +298,21 @@ class NotificationService
             $message,
             'Interview Cancelled',
             self::INTERVIEW_NOTIFICATIONS,
-            self::interviewEmail('Interview Cancelled', $interview, 'Unfortunately, your interview has been cancelled. The company may contact you again if another interview is scheduled.')
+            self::interviewEmail(
+                'Interview Cancelled',
+                $interview,
+                'Unfortunately, your interview has been cancelled. The company may contact you again if another interview is scheduled.'
+            )
         );
     }
 
     public static function interviewReminder(Interview $interview)
     {
         $interview->loadMissing(['application.student', 'application.jobPost.company']);
+
         $dateTime = self::dateTime($interview);
         $jobTitle = $interview->application->jobPost->title;
+
         $message = "Reminder: Your interview for {$jobTitle} is scheduled on {$dateTime['date']} at {$dateTime['time']}.";
 
         return self::sendOnceTodayWithEmail(
@@ -325,6 +338,7 @@ class NotificationService
         $dateTime = self::dateTime($interview);
         $studentName = $interview->application->student->user->name ?? 'candidate';
         $jobTitle = $interview->application->jobPost->title;
+
         $message = "Reminder: {$studentName}'s interview for {$jobTitle} is scheduled on {$dateTime['date']} at {$dateTime['time']}.";
 
         return self::sendOnceTodayWithEmail(
@@ -443,6 +457,7 @@ class NotificationService
         }
 
         $subject = ucfirst($period) . ' Application Summary';
+
         $rows = $applications
             ->groupBy('job_post_id')
             ->map(function ($items) {
@@ -465,17 +480,37 @@ class NotificationService
         ];
 
         $jobRows = $rows
-            ->map(fn ($item) => '<tr><td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e($item['Job Title']) . '</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e((string) $item['New Applications']) . '</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e($item['Top Match']) . '</td></tr>')
+            ->map(fn ($item) =>
+                '<tr>'
+                . '<td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e($item['Job Title']) . '</td>'
+                . '<td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e((string) $item['New Applications']) . '</td>'
+                . '<td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e($item['Top Match']) . '</td>'
+                . '</tr>'
+            )
             ->implode('');
 
-        $html = self::structuredEmail($subject, $details, "Here is your {$period} summary of new applications.")
-            . '<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;margin-top:16px;">'
-            . '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:640px;">'
-            . '<tr><th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Job</th><th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Applications</th><th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Top Match</th></tr>'
-            . $jobRows
-            . '</table></div>';
+        $html = self::structuredEmail(
+            $subject,
+            $details,
+            "Here is your {$period} summary of new applications."
+        )
+        . '<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;margin-top:16px;">'
+        . '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:640px;">'
+        . '<tr>'
+        . '<th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Job</th>'
+        . '<th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Applications</th>'
+        . '<th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">Top Match</th>'
+        . '</tr>'
+        . $jobRows
+        . '</table>'
+        . '</div>';
 
-        self::email($company->user_id, $subject, "{$applications->count()} new applications received.", $html);
+        self::email(
+            $company->user_id,
+            $subject,
+            "{$applications->count()} new applications received.",
+            $html
+        );
     }
 
     public static function companyWaitingReviewNudge(Company $company, int $daysWaiting = 7): void
@@ -491,27 +526,27 @@ class NotificationService
         }
 
         $waitingCount = Application::whereHas('jobPost', function ($query) use ($company) {
-                $query->where('company_id', $company->id);
-            })
-            ->whereIn('status', ['Applied', 'Screening', 'Under Review'])
-            ->where('applied_at', '<=', now()->subDays($daysWaiting))
-            ->count();
+            $query->where('company_id', $company->id);
+        })
+        ->whereIn('status', ['Applied', 'Screening', 'Under Review'])
+        ->where('applied_at', '<=', now()->subDays($daysWaiting))
+        ->count();
 
         if ($waitingCount === 0) {
             return;
         }
 
         $shortlistedCount = Application::whereHas('jobPost', function ($query) use ($company) {
-                $query->where('company_id', $company->id);
-            })
-            ->where('status', 'Shortlisted')
-            ->count();
+            $query->where('company_id', $company->id);
+        })
+        ->where('status', 'Shortlisted')
+        ->count();
 
         $interviewCount = Application::whereHas('jobPost', function ($query) use ($company) {
-                $query->where('company_id', $company->id);
-            })
-            ->where('status', 'Interview')
-            ->count();
+            $query->where('company_id', $company->id);
+        })
+        ->where('status', 'Interview')
+        ->count();
 
         $subject = 'Applicants Waiting For Review';
         $message = "You have {$waitingCount} applicants waiting for review.";
@@ -527,35 +562,59 @@ class NotificationService
             $message
         );
 
-        self::email($company->user_id, $subject, $message, $html);
+        self::email(
+            $company->user_id,
+            $subject,
+            $message,
+            $html
+        );
     }
 
     public static function calculateApplicationMatchScore(Application $application): int
     {
         $application->loadMissing(['student.skills', 'jobPost.skills']);
 
-        return self::calculateJobStudentMatchScore($application->jobPost, $application->student);
+        return self::calculateJobStudentMatchScore(
+            $application->jobPost,
+            $application->student
+        );
     }
 
     public static function calculateJobStudentMatchScore(JobPost $job, Student $student): int
     {
         $studentSkills = $student->skills->pluck('id')->toArray();
         $jobSkills = $job->skills->pluck('id')->toArray();
+
         $score = 0;
 
         if (count($jobSkills) > 0) {
-            $score += (count(array_intersect($studentSkills, $jobSkills)) / count($jobSkills)) * 80;
+            $score += (
+                count(array_intersect($studentSkills, $jobSkills))
+                / count($jobSkills)
+            ) * 80;
         }
 
-        if ($student->location && $job->location && strtolower(trim($student->location)) === strtolower(trim($job->location))) {
+        if (
+            $student->location &&
+            $job->location &&
+            strtolower(trim($student->location)) === strtolower(trim($job->location))
+        ) {
             $score += 10;
         }
 
-        if ($student->preferred_employment_type && $job->employment_type && strtolower($student->preferred_employment_type) === strtolower($job->employment_type)) {
+        if (
+            $student->preferred_employment_type &&
+            $job->employment_type &&
+            strtolower(trim($student->preferred_employment_type)) === strtolower(trim($job->employment_type))
+        ) {
             $score += 5;
         }
 
-        if ($student->major && $job->required_major && strtolower($student->major) === strtolower($job->required_major)) {
+        if (
+            $student->major &&
+            $job->required_major &&
+            strtolower(trim($student->major)) === strtolower(trim($job->required_major))
+        ) {
             $score += 5;
         }
 
@@ -575,7 +634,14 @@ class NotificationService
             'is_read' => false,
         ]);
 
-        SupabaseNotificationService::send($notification);
+        try {
+            SupabaseNotificationService::send($notification);
+        } catch (Throwable $exception) {
+            Log::error('Supabase notification failed', [
+                'notification_id' => $notification->id,
+                'error' => $exception->getMessage(),
+            ]);
+        }
 
         return $notification;
     }
@@ -599,8 +665,14 @@ class NotificationService
         return self::send($userId, $title, $message, $category);
     }
 
-    public static function sendOnceTodayWithEmail($userId, $title, $message, $subject = null, ?string $category = null, ?string $html = null)
-    {
+    public static function sendOnceTodayWithEmail(
+        $userId,
+        $title,
+        $message,
+        $subject = null,
+        ?string $category = null,
+        ?string $html = null
+    ) {
         if (!self::shouldSend($userId, $category)) {
             return null;
         }
@@ -615,27 +687,62 @@ class NotificationService
             return null;
         }
 
-        $notification = self::send($userId, $title, $message, $category);
-        self::email($userId, $subject ?? $title, $message, $html);
+        $notification = self::send(
+            $userId,
+            $title,
+            $message,
+            $category
+        );
+
+        if ($notification) {
+            self::email(
+                $userId,
+                $subject ?? $title,
+                $message,
+                $html
+            );
+        }
 
         return $notification;
     }
 
-    public static function sendWithEmail($userId, $title, $message, $subject = null, ?string $category = null, ?string $html = null)
-    {
+    public static function sendWithEmail(
+        $userId,
+        $title,
+        $message,
+        $subject = null,
+        ?string $category = null,
+        ?string $html = null
+    ) {
         if (!self::shouldSend($userId, $category)) {
             return null;
         }
 
-        $notification = self::send($userId, $title, $message, $category);
+        $notification = self::send(
+            $userId,
+            $title,
+            $message,
+            $category
+        );
 
-        self::email($userId, $subject ?? $title, $message, $html);
+        if ($notification) {
+            self::email(
+                $userId,
+                $subject ?? $title,
+                $message,
+                $html
+            );
+        }
 
         return $notification;
     }
 
-    public static function email($userId, $subject, $message, ?string $html = null): void
-    {
+    public static function email(
+        $userId,
+        $subject,
+        $message,
+        ?string $html = null
+    ): void {
         $user = User::find($userId);
 
         if (!$user || !$user->email) {
@@ -720,32 +827,49 @@ class NotificationService
             'user_id' => $userId,
             'category' => $category,
             'value' => $settings->{$category},
-            'settings' => $settings->toArray(),
         ]);
 
         return (bool) $settings->{$category};
     }
 
-    private static function interviewEmail(string $title, Interview $interview, string $intro, bool $rescheduled = false): string
-    {
+    private static function interviewEmail(
+        string $title,
+        Interview $interview,
+        string $intro,
+        bool $rescheduled = false
+    ): string {
         $dateTime = self::dateTime($interview);
 
-        return self::structuredEmail($title, [
-            'Company Name' => self::companyName($interview->application),
-            'Job Title' => $interview->application->jobPost->title,
-            $rescheduled ? 'New Date' : 'Date' => $dateTime['date'],
-            $rescheduled ? 'New Time' : 'Time' => $dateTime['time'],
-            'Type' => $interview->type,
-            'Meeting Link' => $interview->meeting_link ?: 'N/A',
-            'Location' => $interview->location ?: 'N/A',
-        ], $intro);
+        return self::structuredEmail(
+            $title,
+            [
+                'Company Name' => self::companyName($interview->application),
+                'Job Title' => $interview->application->jobPost->title,
+                $rescheduled ? 'New Date' : 'Date' => $dateTime['date'],
+                $rescheduled ? 'New Time' : 'Time' => $dateTime['time'],
+                'Type' => $interview->type,
+                'Meeting Link' => $interview->meeting_link ?: 'N/A',
+                'Location' => $interview->location ?: 'N/A',
+            ],
+            $intro
+        );
     }
 
-    private static function structuredEmail(string $title, array $details, string $intro): string
-    {
+    private static function structuredEmail(
+        string $title,
+        array $details,
+        string $intro
+    ): string {
         $rows = collect($details)
             ->map(function ($value, $label) {
-                return '<tr><th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">' . e($label) . '</th><td style="padding:8px 12px;border:1px solid #e5e7eb;">' . e((string) $value) . '</td></tr>';
+                return '<tr>'
+                    . '<th style="text-align:left;padding:8px 12px;background:#f6f8fa;border:1px solid #e5e7eb;">'
+                    . e($label)
+                    . '</th>'
+                    . '<td style="padding:8px 12px;border:1px solid #e5e7eb;">'
+                    . e((string) $value)
+                    . '</td>'
+                    . '</tr>';
             })
             ->implode('');
 

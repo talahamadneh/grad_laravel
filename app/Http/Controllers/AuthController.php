@@ -24,15 +24,11 @@ class AuthController extends Controller
             'industry' => 'nullable|string|max:255',
         ]);
 
-        $requiredSuffix = $data['role'] === 'student'
-            ? '@gmail.com'
-            : '@company.com';
+        if ($data['role'] === 'student' &&
+            !str_ends_with(strtolower($data['email']), '@gmail.com')) {
 
-        if (!str_ends_with(strtolower($data['email']), $requiredSuffix)) {
             return response()->json([
-                'message' => $data['role'] === 'student'
-                    ? 'Student email must end with @gmail.com'
-                    : 'Company email must end with @company.com',
+                'message' => 'Student email must end with @gmail.com',
             ], 422);
         }
 
@@ -67,6 +63,7 @@ class AuthController extends Controller
                 'message' => 'User registered successfully',
                 'user' => $user,
             ], 201);
+
         } catch (Exception $e) {
             return response()->json([
                 'message' => 'Registration failed',
@@ -74,6 +71,7 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
 
     public function login(Request $request)
     {
@@ -83,15 +81,11 @@ class AuthController extends Controller
             'role' => 'required|in:student,company,admin',
         ]);
 
-        $requiredSuffix = match ($data['role']) {
-            'student' => '@gmail.com',
-            'company' => '@company.com',
-            'admin' => '@admin.com',
-        };
+        if ($data['role'] === 'student' &&
+            !str_ends_with(strtolower($data['email']), '@gmail.com')) {
 
-        if (!str_ends_with(strtolower($data['email']), $requiredSuffix)) {
             return response()->json([
-                'message' => 'Email must end with ' . $requiredSuffix . ' for this account type',
+                'message' => 'Student email must end with @gmail.com',
             ], 422);
         }
 
@@ -137,6 +131,7 @@ class AuthController extends Controller
         ]);
     }
 
+
     public function forgotPassword(Request $request)
     {
         $request->validate([
@@ -158,10 +153,12 @@ class AuthController extends Controller
         ], 400);
     }
 
+
     public function user(Request $request)
     {
         return response()->json($request->user());
     }
+
 
     public function logout(Request $request)
     {

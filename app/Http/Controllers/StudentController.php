@@ -15,9 +15,7 @@ class StudentController extends Controller
         $student = Student::where('user_id', $request->user()->id)
             ->with([
                 'education',
-                'experience',
-                'projects',
-                'certificates',
+                'experiences',
                 'skills'
             ])
             ->first();
@@ -47,9 +45,7 @@ class StudentController extends Controller
             'linkedin' => $student->linkedin,
             'github' => $student->github,
             'education' => $student->education,
-            'experiences' => $student->experience,
-            'projects' => $student->projects,
-            'certificates' => $student->certificates,
+            'experiences' => $student->experiences,
             'skills' => $student->skills,
         ]);
     }
@@ -87,6 +83,14 @@ class StudentController extends Controller
             'github' => 'nullable|string|max:255',
             'avatar' => 'nullable|string',
             'skills' => 'nullable|array',
+            'experiences' => 'nullable|array',
+            'experiences.*.id' => 'nullable',
+            'experiences.*.position' => 'nullable|string|max:255',
+            'experiences.*.title' => 'nullable|string|max:255',
+            'experiences.*.company' => 'nullable|string|max:255',
+            'experiences.*.start_date' => 'nullable|string|max:50',
+            'experiences.*.end_date' => 'nullable|string|max:50',
+            'experiences.*.description' => 'nullable|string',
         ], [
             'email.unique' => 'This email is already in use by another account.',
         ]);
@@ -102,47 +106,158 @@ class StudentController extends Controller
         if (isset($validated['name'])) {
             $user->name = $validated['name'];
         }
+
         if (isset($validated['email'])) {
             $user->email = $validated['email'];
         }
+
         $user->save();
 
-        $student->headline = $validated['headline'] ?? $student->headline;
-        $student->bio = $validated['bio'] ?? $student->bio;
-        $student->university = $validated['univ'] ?? $student->university;
-        $student->major = $validated['major'] ?? $student->major;
-        $student->graduation_year = $validated['graduation'] ?? $student->graduation_year;
-        $student->gpa = $validated['gpa'] ?? $student->gpa;
-        $student->location = $validated['location'] ?? $student->location;
-        $student->portfolio = $validated['portfolio'] ?? $student->portfolio;
-        $student->phone = $validated['phone'] ?? $student->phone;
-        $student->linkedin = $validated['linkedin'] ?? $student->linkedin;
-        $student->github = $validated['github'] ?? $student->github;
-        $student->avatar = $validated['avatar'] ?? $student->avatar;
+        if (array_key_exists('headline', $validated)) {
+            $student->headline = $validated['headline'];
+        }
+
+        if (array_key_exists('bio', $validated)) {
+            $student->bio = $validated['bio'];
+        }
+
+        if (array_key_exists('univ', $validated)) {
+            $student->university = $validated['univ'];
+        }
+
+        if (array_key_exists('major', $validated)) {
+            $student->major = $validated['major'];
+        }
+
+        if (array_key_exists('graduation', $validated)) {
+            $student->graduation_year = $validated['graduation'];
+        }
+
+        if (array_key_exists('gpa', $validated)) {
+            $student->gpa = $validated['gpa'];
+        }
+
+        if (array_key_exists('location', $validated)) {
+            $student->location = $validated['location'];
+        }
+
+        if (array_key_exists('portfolio', $validated)) {
+            $student->portfolio = $validated['portfolio'];
+        }
+
+        if (array_key_exists('phone', $validated)) {
+            $student->phone = $validated['phone'];
+        }
+
+        if (array_key_exists('linkedin', $validated)) {
+            $student->linkedin = $validated['linkedin'];
+        }
+
+        if (array_key_exists('github', $validated)) {
+            $student->github = $validated['github'];
+        }
+
+        if (array_key_exists('avatar', $validated)) {
+            $student->avatar = $validated['avatar'];
+        }
 
         if ($request->has('skills')) {
             $skillIds = [];
-            $skillsInput = $request->skills;
+            $skillsInput = $request->input('skills', []);
 
-            if (count($skillsInput) === 1 && str_contains($skillsInput[0], '-')) {
-                $skillsInput = array_map('trim', explode('-', $skillsInput[0]));
+            if (!is_array($skillsInput)) {
+                $skillsInput = [];
             }
 
             foreach ($skillsInput as $skillName) {
-                if (!empty(trim($skillName))) {
-                    $skill = Skill::firstOrCreate([
-                        'name' => trim($skillName)
-                    ]);
-                    $skillIds[] = $skill->id;
+                if (is_array($skillName)) {
+                    $skillName = $skillName['name'] ?? '';
                 }
+
+                if (!is_string($skillName)) {
+                    continue;
+                }
+
+                $skillName = trim($skillName);
+
+                if ($skillName === '') {
+                    continue;
+                }
+
+                $skill = Skill::firstOrCreate([
+                    'name' => $skillName
+                ]);
+
+                $skillIds[] = $skill->id;
             }
+
             $student->skills()->sync($skillIds);
+        }
+
+        if ($request->has('experiences')) {
+            $experiencesInput = $request->input('experiences', []);
+
+            if (!is_array($experiencesInput)) {
+                $experiencesInput = [];
+            }
+
+            $student->experiences()->delete();
+
+            foreach ($experiencesInput as $experienceData) {
+                if (!is_array($experienceData)) {
+                    continue;
+                }
+
+                $position = trim(
+                    (string) (
+                        $experienceData['position']
+                        ?? $experienceData['title']
+                        ?? ''
+                    )
+                );
+
+                $company = trim(
+                    (string) ($experienceData['company'] ?? '')
+                );
+
+                $startDate = trim(
+                    (string) ($experienceData['start_date'] ?? '')
+                );
+
+                $endDate = trim(
+                    (string) ($experienceData['end_date'] ?? '')
+                );
+
+                $description = trim(
+                    (string) ($experienceData['description'] ?? '')
+                );
+
+                if (
+                    $position === '' &&
+                    $company === '' &&
+                    $description === ''
+                ) {
+                    continue;
+                }
+
+                $student->experiences()->create([
+                    'position' => $position,
+                    'company' => $company,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'description' => $description,
+                ]);
+            }
         }
 
         $student->profile_completion = $this->calculateCompletion($student);
         $student->save();
 
-        $student->load(['education', 'experience', 'projects', 'certificates', 'skills']);
+        $student->load([
+            'education',
+            'experiences',
+            'skills'
+        ]);
 
         return response()->json([
             'id' => $student->id,
@@ -163,9 +278,7 @@ class StudentController extends Controller
             'linkedin' => $student->linkedin,
             'github' => $student->github,
             'education' => $student->education,
-            'experiences' => $student->experience,
-            'projects' => $student->projects,
-            'certificates' => $student->certificates,
+            'experiences' => $student->experiences,
             'skills' => $student->skills,
         ]);
     }
@@ -173,18 +286,27 @@ class StudentController extends Controller
     private function calculateCompletion($student)
     {
         $fields = [
-            'headline', 'bio', 'university', 'major', 
-            'graduation_year', 'gpa', 'location', 'portfolio',
-            'phone', 'linkedin', 'github'
+            'headline',
+            'bio',
+            'university',
+            'major',
+            'graduation_year',
+            'gpa',
+            'location',
+            'portfolio',
+            'phone',
+            'linkedin',
+            'github'
         ];
-        
+
         $filled = 0;
+
         foreach ($fields as $field) {
             if (!empty($student->$field)) {
                 $filled++;
             }
         }
-        
+
         return round(($filled / count($fields)) * 100);
     }
 }

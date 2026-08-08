@@ -14,6 +14,10 @@ class Message extends Model
         'sender_id',
         'receiver_id',
         'message',
+        'type',
+        'file_url',
+        'file_name',
+        'file_type',
         'is_read',
     ];
 
@@ -21,12 +25,10 @@ class Message extends Model
         'is_read' => 'boolean',
     ];
 
-
     public function sender()
     {
         return $this->belongsTo(User::class, 'sender_id');
     }
-
 
     public function receiver()
     {

@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use App\Models\Resume;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Http;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Smalot\PdfParser\Parser;
+use PhpOffice\PhpWord\IOFactory;
 
 class ResumeController extends Controller
 {
@@ -55,6 +58,8 @@ class ResumeController extends Controller
 
                 'template' => 'executive',
                 'title' => 'My Resume',
+                'file_path' => null,
+                'file_url' => null,
                 'is_public' => false,
             ]);
         }
@@ -69,9 +74,13 @@ class ResumeController extends Controller
             'projects' => $resume->projects ?? [],
             'languages' => $resume->languages ?? [],
             'certificates' => $resume->certificates ?? [],
+
+            'file_path' => $resume->file_path,
+            'file_url' => $resume->file_path
+                ? Storage::url($resume->file_path)
+                : null,
         ]);
     }
-
 
     public function store(Request $request)
     {
@@ -126,7 +135,6 @@ class ResumeController extends Controller
         ], 201);
     }
 
-
     public function update(Request $request, $id)
     {
         $student = $request->user()->student;
@@ -176,7 +184,6 @@ class ResumeController extends Controller
         ]);
     }
 
-
     public function destroy(Request $request, $id)
     {
         $student = $request->user()->student;
@@ -203,13 +210,6 @@ class ResumeController extends Controller
             'message' => 'Resume deleted successfully'
         ]);
     }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | AI IMPROVE - GROQ
-    |--------------------------------------------------------------------------
-    */
 
     public function aiImprove(Request $request)
     {
@@ -300,7 +300,6 @@ PROMPT;
 
             $improvedText = trim($improvedText);
 
-            // إزالة علامات الاقتباس إذا رجعها Groq
             $improvedText = trim($improvedText, "\"'");
 
             return response()->json([
@@ -322,8 +321,386 @@ PROMPT;
         }
     }
 
+    private function extractTextFromElement($element): string
+    {
+        $text = '';
 
+        if (method_exists($element, 'getText')) {
+            $value = $element->getText();
 
+            if (is_string($value)) {
+                $text .= $value . ' ';
+            }
+        }
+
+        if (method_exists($element, 'getElements')) {
+            foreach ($element->getElements() as $child) {
+                $text .= $this->extractTextFromElement($child);
+            }
+        }
+
+        if (method_exists($element, 'getRows')) {
+            foreach ($element->getRows() as $row) {
+                if (method_exists($row, 'getCells')) {
+                    foreach ($row->getCells() as $cell) {
+                        $text .= $this->extractTextFromElement($cell);
+                    }
+                }
+            }
+        }
+
+        return $text;
+    }
+
+    private function extractDocxText(string $path): string
+    {
+        $phpWord = IOFactory::load($path);
+        $text = '';
+
+        foreach ($phpWord->getSections() as $section) {
+            $text .= $this->extractTextFromElement($section) . "\n";
+        }
+
+        return trim(preg_replace('/\s+/', ' ', $text));
+    }
+
+    public function uploadFile(Request $request)
+    {
+        $student = $request->user()->student;
+
+        if (!$student) {
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|mimes:pdf,docx|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $file = $request->file('file');
+            $extension = strtolower($file->getClientOriginalExtension());
+
+            $filePath = $file->store(
+                'resumes',
+                'public'
+            );
+
+            if ($extension === 'pdf') {
+                $parser = new Parser();
+
+                $pdf = $parser->parseFile(
+                    $file->getRealPath()
+                );
+
+                $text = trim($pdf->getText());
+            } else {
+                $text = $this->extractDocxText($file->getRealPath());
+            }
+
+            if (!$text) {
+                Storage::disk('public')->delete($filePath);
+
+                return response()->json([
+                    'message' => 'Could not extract text from this file.'
+                ], 422);
+            }
+
+            $prompt = <<<PROMPT
+Extract structured resume information from the following resume text.
+
+Return ONLY valid JSON.
+
+Do not invent information.
+If a field is missing, return an empty string or empty array.
+
+Use exactly this structure:
+
+{
+    "full_name": "",
+    "professional_title": "",
+    "summary": "",
+    "email": "",
+    "phone": "",
+    "location": "",
+    "linkedin": "",
+    "github": "",
+    "portfolio": "",
+    "education": [],
+    "skills": [],
+    "experience": [],
+    "projects": [],
+    "certificates": [],
+    "languages": []
+}
+
+Education items must use:
+
+{
+    "degree": "",
+    "university": "",
+    "field_of_study": "",
+    "start_date": "",
+    "end_date": ""
+}
+
+Skill items must use:
+
+{
+    "name": ""
+}
+
+Experience items must use:
+
+{
+    "title": "",
+    "company": "",
+    "start_date": "",
+    "end_date": "",
+    "description": ""
+}
+
+Project items must use:
+
+{
+    "name": "",
+    "link": "",
+    "description": ""
+}
+
+Certificate items must use:
+
+{
+    "name": "",
+    "issuer": "",
+    "year": ""
+}
+
+Language items must use:
+
+{
+    "language": "",
+    "level": ""
+}
+
+Resume text:
+
+{$text}
+PROMPT;
+
+            $response = Http::withToken(
+                config('services.groq.keys.0')
+            )
+            ->acceptJson()
+            ->timeout(90)
+            ->post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                [
+                    'model' => config(
+                        'services.groq.model',
+                        'llama-3.3-70b-versatile'
+                    ),
+
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => 'You extract resume information into valid JSON. Never invent information.'
+                        ],
+                        [
+                            'role' => 'user',
+                            'content' => $prompt
+                        ]
+                    ],
+
+                    'temperature' => 0.1,
+                    'stream' => false,
+                    'response_format' => ['type' => 'json_object'],
+                ]
+            );
+
+            if (!$response->successful()) {
+                Storage::disk('public')->delete($filePath);
+
+                \Log::error('Groq Resume Parsing Error', [
+                    'status' => $response->status(),
+                    'response' => $response->json(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Failed to analyze the uploaded CV.'
+                ], 500);
+            }
+
+            $content = data_get(
+                $response->json(),
+                'choices.0.message.content'
+            );
+
+            if (!$content) {
+                Storage::disk('public')->delete($filePath);
+
+                return response()->json([
+                    'message' => 'AI returned an empty response.'
+                ], 500);
+            }
+
+            $content = trim($content);
+
+            $content = preg_replace(
+                '/^```json\s*|\s*```$/i',
+                '',
+                $content
+            );
+
+            \Log::info('Groq Resume Content', [
+                'content' => $content
+            ]);
+
+            $parsedData = json_decode(
+                trim($content),
+                true
+            );
+
+            if (!is_array($parsedData)) {
+                Storage::disk('public')->delete($filePath);
+
+                \Log::error('Invalid Resume JSON', [
+                    'content' => $content
+                ]);
+
+                return response()->json([
+                    'message' => 'Could not understand the uploaded CV.'
+                ], 422);
+            }
+
+            $resume = Resume::where(
+                'student_id',
+                $student->id
+            )->first();
+
+            $resumeData = [
+                'student_id' => $student->id,
+                'title' => 'My Resume',
+                'template' => 'executive',
+
+                'full_name' => $parsedData['full_name']
+                    ?? $request->user()->name,
+
+                'professional_title' =>
+                    $parsedData['professional_title']
+                    ?? $student->headline,
+
+                'summary' =>
+                    $parsedData['summary']
+                    ?? $student->bio,
+
+                'education' =>
+                    $parsedData['education'] ?? [],
+
+                'skills' =>
+                    $parsedData['skills'] ?? [],
+
+                'experience' =>
+                    $parsedData['experience'] ?? [],
+
+                'projects' =>
+                    $parsedData['projects'] ?? [],
+
+                'certificates' =>
+                    $parsedData['certificates'] ?? [],
+
+                'languages' =>
+                    $parsedData['languages'] ?? [],
+
+                'is_public' => false,
+
+                'file_path' => $filePath,
+            ];
+
+            if ($resume) {
+
+                $oldFilePath = $resume->file_path;
+
+                $resume->update($resumeData);
+
+                if (
+                    $oldFilePath &&
+                    $oldFilePath !== $filePath &&
+                    Storage::disk('public')->exists($oldFilePath)
+                ) {
+                    Storage::disk('public')->delete($oldFilePath);
+                }
+
+            } else {
+
+                $resume = Resume::create($resumeData);
+            }
+
+            $studentUpdates = [];
+
+            if (empty($student->phone) && !empty($parsedData['phone'])) {
+                $studentUpdates['phone'] = $parsedData['phone'];
+            }
+
+            if (empty($student->location) && !empty($parsedData['location'])) {
+                $studentUpdates['location'] = $parsedData['location'];
+            }
+
+            if (empty($student->linkedin) && !empty($parsedData['linkedin'])) {
+                $studentUpdates['linkedin'] = $parsedData['linkedin'];
+            }
+
+            if (empty($student->github) && !empty($parsedData['github'])) {
+                $studentUpdates['github'] = $parsedData['github'];
+            }
+
+            if (empty($student->portfolio) && !empty($parsedData['portfolio'])) {
+                $studentUpdates['portfolio'] = $parsedData['portfolio'];
+            }
+
+            if (empty($student->headline) && !empty($parsedData['professional_title'])) {
+                $studentUpdates['headline'] = $parsedData['professional_title'];
+            }
+
+            if (empty($student->bio) && !empty($parsedData['summary'])) {
+                $studentUpdates['bio'] = $parsedData['summary'];
+            }
+
+            if (!empty($studentUpdates)) {
+                $student->update($studentUpdates);
+                $student->refresh();
+            }
+
+            return response()->json([
+                'message' => 'CV uploaded and analyzed successfully',
+                'resume' => $resume,
+                'file_path' => $filePath,
+                'file_url' => Storage::disk('public')->url(
+                    $filePath
+                ),
+            ]);
+
+        } catch (\Throwable $e) {
+
+            \Log::error('Resume Upload Error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to process the uploaded CV.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 
     public function generatePdf(Request $request, $id)
     {

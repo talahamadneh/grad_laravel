@@ -10,7 +10,7 @@ class Experience extends Model
     protected $fillable = [
         'student_id',
         'company',
-        'title',
+        'position',
         'description',
         'start_date',
         'end_date',
@@ -20,8 +20,9 @@ class Experience extends Model
     {
         return $this->belongsTo(Student::class,'student_id'); 
     }
-    public function getPositionAttribute()
-{
-    return $this->title;
-}
+
+    public function getTitleAttribute()
+    {
+        return $this->position;
+    }
 }

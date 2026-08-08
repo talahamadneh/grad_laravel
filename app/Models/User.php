@@ -68,4 +68,14 @@ class User extends Authenticatable
     {
         return $this->hasOne(PrivacySetting::class);
     }
+
+    public function blockedUsers()
+{
+    return $this->belongsToMany(
+        User::class,
+        'user_blocks',
+        'user_id',
+        'blocked_user_id'
+    )->withTimestamps();
+}
 }

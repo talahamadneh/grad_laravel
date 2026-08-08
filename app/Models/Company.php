@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Company extends Model
 {
@@ -13,6 +14,34 @@ class Company extends Model
         'benefits' => 'array',
         'is_verified' => 'boolean',
     ];
+
+    public function getLogoAttribute($value)
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        // If it's already a full URL, return as-is
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            return $value;
+        }
+
+        return Storage::disk('public')->url($value);
+    }
+
+    public function getCoverImageAttribute($value)
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        // If it's already a full URL, return as-is
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            return $value;
+        }
+
+        return Storage::disk('public')->url($value);
+    }
     protected $fillable = [
         'user_id',
         'company_name',

@@ -74,8 +74,17 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Messages
     Route::get('/messages', [MessageController::class, 'index']);
+    Route::get('/messages/search-recipient', [MessageController::class, 'searchRecipient']);
     Route::get('/messages/{user}', [MessageController::class, 'show']);
     Route::post('/messages', [MessageController::class, 'store']);
+
+Route::post('/messages/{user}/close', [MessageController::class, 'closeConversation']);
+Route::post('/messages/{user}/reopen', [MessageController::class, 'reopenConversation']);
+    Route::delete('/messages/{user}', [MessageController::class, 'destroyConversation']);
+    Route::post('/messages/{user}/block', [MessageController::class, 'blockUser']);
+    Route::post('/messages/{user}/report', [MessageController::class, 'reportUser']);
+
+
 
     //Settings
     Route::put('/settings/password', [SettingsController::class, 'changePassword']);
@@ -96,7 +105,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Company Profile
     Route::get('/company/profile', [CompanyController::class, 'profile']);
-    Route::put('/company/profile', [CompanyController::class, 'update']);
+    Route::post('/company/profile', [CompanyController::class, 'update']);
     Route::get('/company/jobs', [CompanyController::class, 'jobs']);
 
     //Company Job Posts
@@ -112,6 +121,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/applicants/{applicationId}/notes', [CompanyNoteController::class, 'store']);
     Route::put('/company/notes/{id}', [CompanyNoteController::class, 'update']);
     Route::delete('/company/notes/{id}', [CompanyNoteController::class, 'destroy']);
+    Route::post('/student/resume/upload', [ResumeController::class, 'uploadFile']);    
+
     //Application Status
     Route::put('/company/applicants/{applicationId}/status', [ApplicationStatusController::class, 'update']);
     Route::get('/company/applicants/{applicationId}/timeline', [ApplicationStatusController::class, 'timeline']);
@@ -130,6 +141,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //delete job
     Route::delete('/company/jobs/{id}', [CompanyController::class, 'destroyJob']);
+
 
     //shortlist applicant
     Route::patch('/company/applications/{application}/shortlist', [CompanyController::class, 'shortlist']);
