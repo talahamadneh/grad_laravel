@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Resume;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Http;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class ResumeController extends Controller
@@ -14,7 +15,9 @@ class ResumeController extends Controller
         $student = $request->user()->student;
 
         if (!$student) {
-            return response()->json(['message' => 'Student profile not found'], 404);
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
         }
 
         $resume = Resume::where('student_id', $student->id)->first();
@@ -75,7 +78,9 @@ class ResumeController extends Controller
         $student = $request->user()->student;
 
         if (!$student) {
-            return response()->json(['message' => 'Student profile not found'], 404);
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
         }
 
         $validator = Validator::make($request->all(), [
@@ -94,7 +99,9 @@ class ResumeController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'errors' => $validator->errors()
+            ], 422);
         }
 
         $resume = Resume::create([
@@ -125,7 +132,9 @@ class ResumeController extends Controller
         $student = $request->user()->student;
 
         if (!$student) {
-            return response()->json(['message' => 'Student profile not found'], 404);
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
         }
 
         $resume = Resume::where('id', $id)
@@ -133,7 +142,9 @@ class ResumeController extends Controller
             ->first();
 
         if (!$resume) {
-            return response()->json(['message' => 'Resume not found'], 404);
+            return response()->json([
+                'message' => 'Resume not found'
+            ], 404);
         }
 
         $validator = Validator::make($request->all(), [
@@ -152,7 +163,9 @@ class ResumeController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'errors' => $validator->errors()
+            ], 422);
         }
 
         $resume->update($request->all());
@@ -169,7 +182,9 @@ class ResumeController extends Controller
         $student = $request->user()->student;
 
         if (!$student) {
-            return response()->json(['message' => 'Student profile not found'], 404);
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
         }
 
         $resume = Resume::where('id', $id)
@@ -177,65 +192,137 @@ class ResumeController extends Controller
             ->first();
 
         if (!$resume) {
-            return response()->json(['message' => 'Resume not found'], 404);
+            return response()->json([
+                'message' => 'Resume not found'
+            ], 404);
         }
 
         $resume->delete();
 
-        return response()->json(['message' => 'Resume deleted successfully']);
+        return response()->json([
+            'message' => 'Resume deleted successfully'
+        ]);
     }
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | AI IMPROVE - GROQ
+    |--------------------------------------------------------------------------
+    */
 
     public function aiImprove(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'text' => 'required|string|min:10'
+            'text' => 'required|string|min:10|max:5000',
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        $text = $request->text;
-        $improvedText = $this->simulateAI($text);
+        try {
+            $text = trim($request->text);
 
-        return response()->json([
-            'improved_text' => $improvedText
-        ]);
+            $prompt = <<<PROMPT
+Improve the following professional resume summary.
+
+Requirements:
+- Keep the original meaning and facts.
+- Do not invent experience, skills, education, companies, achievements, or numbers.
+- Make it professional and suitable for a modern resume.
+- Make it concise and impactful.
+- Use strong professional language.
+- Focus on the candidate's value, skills, and career direction.
+- Return ONLY the improved summary.
+- Do not add quotation marks.
+- Do not add explanations.
+- Do not use bullet points.
+
+Original summary:
+{$text}
+PROMPT;
+
+            $response = Http::withToken(config('services.groq.keys.0'))
+                ->acceptJson()
+                ->timeout(60)
+                ->post('https://api.groq.com/openai/v1/chat/completions', [
+                    'model' => config(
+                        'services.groq.model',
+                        'llama-3.3-70b-versatile'
+                    ),
+
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => 'You are a professional resume writing assistant. Improve resume summaries while preserving the candidate\'s original facts. Never invent information.'
+                        ],
+                        [
+                            'role' => 'user',
+                            'content' => $prompt
+                        ]
+                    ],
+
+                    'temperature' => 0.4,
+                    'stream' => false,
+                ]);
+
+            if (!$response->successful()) {
+
+                \Log::error('Groq AI Error', [
+                    'status' => $response->status(),
+                    'response' => $response->json(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Groq AI request failed.',
+                    'details' => $response->json(),
+                ], 500);
+            }
+
+            $improvedText = data_get(
+                $response->json(),
+                'choices.0.message.content'
+            );
+
+            if (!$improvedText) {
+
+                \Log::error('Groq returned empty response', [
+                    'response' => $response->json(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Groq returned an empty response.'
+                ], 500);
+            }
+
+            $improvedText = trim($improvedText);
+
+            // إزالة علامات الاقتباس إذا رجعها Groq
+            $improvedText = trim($improvedText, "\"'");
+
+            return response()->json([
+                'improved_text' => $improvedText
+            ]);
+
+        } catch (\Throwable $e) {
+
+            \Log::error('Groq AI Improve Exception', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to improve resume summary.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
 
-    private function simulateAI($text)
-    {
-        $prefixes = [
-            "Results-driven ",
-            "Passionate ",
-            "Experienced ",
-            "Dedicated ",
-            "Innovative "
-        ];
-
-        $suffixes = [
-            " with a proven track record of success.",
-            " committed to delivering excellence.",
-            " passionate about creating impact.",
-            " with expertise in modern technologies.",
-            " dedicated to continuous improvement."
-        ];
-
-        $prefix = $prefixes[array_rand($prefixes)];
-        $suffix = $suffixes[array_rand($suffixes)];
-
-        $text = preg_replace('/^(Results-driven |Passionate |Experienced |Dedicated |Innovative )/', '', $text);
-
-        $text = preg_replace(
-            '/ with a proven track record of success\.| committed to delivering excellence\.| passionate about creating impact\.| with expertise in modern technologies\.| dedicated to continuous improvement\.$/',
-            '',
-            $text
-        );
-
-        return $prefix . trim($text) . $suffix;
-    }
 
 
     public function generatePdf(Request $request, $id)

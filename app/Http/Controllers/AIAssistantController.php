@@ -40,7 +40,9 @@ Summary: {$resume->summary}
 Skills: " . json_encode($resume->skills) . "
 Experience: " . json_encode($resume->experience) . "
 Education: " . json_encode($resume->education) . "
-";
+Do not penalize students heavily for lacking professional experience. Evaluate based on the quality and completeness of a student resume rather than years of work experience.
+"
+;
 
         try {
             $result = $groq->generate($prompt);

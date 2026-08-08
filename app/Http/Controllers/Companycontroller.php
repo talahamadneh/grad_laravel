@@ -16,6 +16,8 @@ use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 
 class CompanyController extends Controller
 {
@@ -209,41 +211,133 @@ class CompanyController extends Controller
         ], 201);
     }
 
-    public function generateJobDescription(Request $request, GeminiService $gemini)
-    {
-        $request->validate([
-            'title' => 'required|string',
-            'department' => 'nullable|string',
-            'level' => 'nullable|string',
-            'work_mode' => 'nullable|string',
-            'skills' => 'nullable|array',
-        ]);
+   public function generateJobDescription(Request $request)
+{
+    $request->validate([
+        'title' => 'required|string|max:255',
+        'department' => 'nullable|string|max:255',
+        'level' => 'nullable|string|max:100',
+        'work_mode' => 'nullable|string|max:100',
+        'skills' => 'nullable|array',
+        'skills.*' => 'string|max:100',
+    ]);
 
-        $skillsText = !empty($request->skills) ? implode(', ', $request->skills) : 'general relevant skills';
+    try {
+        $apiKey = config('services.groq.keys.0');
 
-        $prompt = "Write a professional and engaging job description for the following role:
-Title: {$request->title}
-Department: " . ($request->department ?? 'Not specified') . "
-Level: " . ($request->level ?? 'Not specified') . "
-Work Mode: " . ($request->work_mode ?? 'Not specified') . "
-Required Skills: {$skillsText}
-
-Write 2-3 paragraphs describing the role, responsibilities, and what success looks like. Do not include the job title as a heading, just the description text itself. Respond with plain text only, no markdown.";
-
-        try {
-            $description = $gemini->generate($prompt);
+        if (!$apiKey) {
+            Log::error('Groq API key not configured.');
 
             return response()->json([
-                'description' => trim($description)
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'AI service error',
-                'error' => $e->getMessage()
+                'message' => 'Groq API key is not configured.'
             ], 500);
         }
+
+        $skillsText = !empty($request->skills)
+            ? implode(', ', $request->skills)
+            : 'General relevant skills';
+
+        $department = $request->department ?? 'Not specified';
+        $level = $request->level ?? 'Not specified';
+        $workMode = $request->work_mode ?? 'Not specified';
+
+        $prompt = <<<PROMPT
+Write a professional and engaging job description for the following role.
+
+Job Title: {$request->title}
+Department: {$department}
+Level: {$level}
+Work Mode: {$workMode}
+Required Skills: {$skillsText}
+
+Requirements:
+- Write 2-3 professional paragraphs.
+- Describe the role and its main responsibilities.
+- Explain what success in the role looks like.
+- Make it attractive to qualified candidates.
+- Keep the information consistent with the provided details.
+- Do not invent company-specific facts.
+- Do not include salary information.
+- Do not include benefits.
+- Do not add the job title as a heading.
+- Return plain text only.
+- Do not use markdown.
+- Do not use bullet points.
+PROMPT;
+
+        $response = Http::withToken($apiKey)
+            ->acceptJson()
+            ->timeout(60)
+            ->post('https://api.groq.com/openai/v1/chat/completions', [
+                'model' => config(
+                    'services.groq.model',
+                    'llama-3.3-70b-versatile'
+                ),
+
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' =>
+                            'You are a professional HR and job description writing assistant. Write clear, realistic, engaging job descriptions without inventing company-specific information.'
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => $prompt
+                    ],
+                ],
+
+                'temperature' => 0.5,
+                'max_tokens' => 700,
+                'stream' => false,
+            ]);
+
+        if (!$response->successful()) {
+
+            Log::error('Groq Job Description Error', [
+                'status' => $response->status(),
+                'response' => $response->json(),
+            ]);
+
+            return response()->json([
+                'message' => 'Groq AI request failed.',
+                'details' => $response->json(),
+            ], 500);
+        }
+
+        $description = data_get(
+            $response->json(),
+            'choices.0.message.content'
+        );
+
+        if (!$description) {
+
+            Log::error('Groq returned empty job description', [
+                'response' => $response->json(),
+            ]);
+
+            return response()->json([
+                'message' => 'Groq returned an empty response.'
+            ], 500);
+        }
+
+        return response()->json([
+            'description' => trim($description)
+        ]);
+
+    } catch (\Throwable $e) {
+
+        Log::error('Groq Job Description Exception', [
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return response()->json([
+            'message' => 'Failed to generate job description.',
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
 
     public function applicants(Request $request, JobMatchingService $matchingService)
     {
