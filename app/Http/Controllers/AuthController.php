@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Student;
 use App\Models\Company;
 use App\Services\NotificationService;
+use App\Services\AutomaticVerificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -14,7 +15,7 @@ use Exception;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
+    public function register(Request $request, AutomaticVerificationService $verificationService)
     {
         $data = $request->validate([
             'name' => 'required',
@@ -24,16 +25,8 @@ class AuthController extends Controller
             'industry' => 'nullable|string|max:255',
         ]);
 
-        if ($data['role'] === 'student' &&
-            !str_ends_with(strtolower($data['email']), '@gmail.com')) {
-
-            return response()->json([
-                'message' => 'Student email must end with @gmail.com',
-            ], 422);
-        }
-
         try {
-            DB::transaction(function () use ($data, &$user) {
+            DB::transaction(function () use ($data, &$user, $verificationService) {
                 $user = User::create([
                     'name' => $data['name'],
                     'email' => $data['email'],
@@ -42,16 +35,25 @@ class AuthController extends Controller
                 ]);
 
                 if ($data['role'] === 'student') {
-                    Student::create([
+
+                    $student = Student::create([
                         'user_id' => $user->id,
                     ]);
+
+                    // Automatic verification
+                    $verificationService->verifyStudent($student);
+
                 } else {
-                    Company::create([
+
+                    $company = Company::create([
                         'user_id' => $user->id,
                         'company_name' => $data['name'],
                         'industry' => $data['industry'] ?? null,
                         'approval_status' => 'Pending',
                     ]);
+
+                    // Automatic company verification
+                    $verificationService->verifyCompany($company);
                 }
             });
 
@@ -81,13 +83,6 @@ class AuthController extends Controller
             'role' => 'required|in:student,company,admin',
         ]);
 
-        if ($data['role'] === 'student' &&
-            !str_ends_with(strtolower($data['email']), '@gmail.com')) {
-
-            return response()->json([
-                'message' => 'Student email must end with @gmail.com',
-            ], 422);
-        }
 
         $user = User::where('email', $data['email'])->first();
 

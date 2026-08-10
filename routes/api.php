@@ -23,8 +23,8 @@ use App\Http\Controllers\ApplicationStatusController;
 use App\Http\Controllers\InterviewController;
 use App\Http\Controllers\InterviewFeedbackController;
 use App\Http\Controllers\ReportController;
-
-
+use App\Http\Controllers\Admin\AdminDashboardController;
+use App\Http\Controllers\Admin\AdminCompanyController;
 
 Route::get('/landing/stats', [LandingController::class, 'stats']);
 
@@ -39,7 +39,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Dashboard
     Route::get('/student/dashboard', [StudentDashboardController::class, 'index']);
-  //  Route::get('/student/recommended-jobs', [StudentJobController::class, 'recommended']);
+    //  Route::get('/student/recommended-jobs', [StudentJobController::class, 'recommended']);
 
     // Student Profile
     Route::get('/student/profile', [StudentController::class, 'profile']);
@@ -78,8 +78,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/messages/{user}', [MessageController::class, 'show']);
     Route::post('/messages', [MessageController::class, 'store']);
 
-Route::post('/messages/{user}/close', [MessageController::class, 'closeConversation']);
-Route::post('/messages/{user}/reopen', [MessageController::class, 'reopenConversation']);
+    Route::post('/messages/{user}/close', [MessageController::class, 'closeConversation']);
+    Route::post('/messages/{user}/reopen', [MessageController::class, 'reopenConversation']);
     Route::delete('/messages/{user}', [MessageController::class, 'destroyConversation']);
     Route::post('/messages/{user}/block', [MessageController::class, 'blockUser']);
     Route::post('/messages/{user}/report', [MessageController::class, 'reportUser']);
@@ -121,7 +121,7 @@ Route::post('/messages/{user}/reopen', [MessageController::class, 'reopenConvers
     Route::post('/company/applicants/{applicationId}/notes', [CompanyNoteController::class, 'store']);
     Route::put('/company/notes/{id}', [CompanyNoteController::class, 'update']);
     Route::delete('/company/notes/{id}', [CompanyNoteController::class, 'destroy']);
-    Route::post('/student/resume/upload', [ResumeController::class, 'uploadFile']);    
+    Route::post('/student/resume/upload', [ResumeController::class, 'uploadFile']);
 
     //Application Status
     Route::put('/company/applicants/{applicationId}/status', [ApplicationStatusController::class, 'update']);
@@ -183,6 +183,15 @@ Route::post('/messages/{user}/reopen', [MessageController::class, 'reopenConvers
     Route::put('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
-});
 
+    // Admin dashboard route
+    Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
+
+    // Admin company routes
+    Route::get('/admin/companies/pending', [AdminCompanyController::class, 'pending']);
+    Route::get('/admin/companies/{id}', [AdminCompanyController::class, 'show']);
+    Route::patch('/admin/companies/{id}/approve', [AdminCompanyController::class, 'approve']);
+    Route::patch('/admin/companies/{id}/reject', [AdminCompanyController::class, 'reject']);
+    Route::patch('/admin/companies/{id}/suspend', [AdminCompanyController::class, 'suspend']);
+});
 

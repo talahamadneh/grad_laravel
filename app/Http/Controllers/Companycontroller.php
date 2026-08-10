@@ -10,12 +10,11 @@ use App\Models\Application;
 use App\Models\ApplicationStatusHistory;
 use App\Models\Interview;
 use Illuminate\Support\Facades\Validator;
-use App\Services\GeminiService;
+//use App\Services\GeminiService;
 use App\Services\JobMatchingService;
 use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 
@@ -49,7 +48,6 @@ class CompanyController extends Controller
                     'views' => 0,
                     'posted' => optional($job->created_at)->diffForHumans(),
                     'benefits' => $job->benefits ?? [],
-
                 ];
             });
 
@@ -154,7 +152,9 @@ class CompanyController extends Controller
         $company = Company::where('user_id', $request->user()->id)->first();
 
         if (!$company) {
-            return response()->json(['message' => 'Company profile not found'], 404);
+            return response()->json([
+                'message' => 'Company profile not found'
+            ], 404);
         }
 
         $validator = Validator::make($request->all(), [
@@ -175,7 +175,9 @@ class CompanyController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'errors' => $validator->errors()
+            ], 422);
         }
 
         $validated = $validator->validated();
@@ -198,10 +200,15 @@ class CompanyController extends Controller
 
         if (!empty($validated['skills'])) {
             $skillIds = [];
+
             foreach ($validated['skills'] as $skillName) {
-                $skill = Skill::firstOrCreate(['name' => $skillName]);
+                $skill = Skill::firstOrCreate([
+                    'name' => $skillName
+                ]);
+
                 $skillIds[] = $skill->id;
             }
+
             $job->skills()->sync($skillIds);
         }
 
@@ -211,37 +218,37 @@ class CompanyController extends Controller
         ], 201);
     }
 
-   public function generateJobDescription(Request $request)
-{
-    $request->validate([
-        'title' => 'required|string|max:255',
-        'department' => 'nullable|string|max:255',
-        'level' => 'nullable|string|max:100',
-        'work_mode' => 'nullable|string|max:100',
-        'skills' => 'nullable|array',
-        'skills.*' => 'string|max:100',
-    ]);
+    public function generateJobDescription(Request $request)
+    {
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'department' => 'nullable|string|max:255',
+            'level' => 'nullable|string|max:100',
+            'work_mode' => 'nullable|string|max:100',
+            'skills' => 'nullable|array',
+            'skills.*' => 'string|max:100',
+        ]);
 
-    try {
-        $apiKey = config('services.groq.keys.0');
+        try {
+            $apiKey = config('services.groq.keys.0');
 
-        if (!$apiKey) {
-            Log::error('Groq API key not configured.');
+            if (!$apiKey) {
+                Log::error('Groq API key not configured.');
 
-            return response()->json([
-                'message' => 'Groq API key is not configured.'
-            ], 500);
-        }
+                return response()->json([
+                    'message' => 'Groq API key is not configured.'
+                ], 500);
+            }
 
-        $skillsText = !empty($request->skills)
-            ? implode(', ', $request->skills)
-            : 'General relevant skills';
+            $skillsText = !empty($request->skills)
+                ? implode(', ', $request->skills)
+                : 'General relevant skills';
 
-        $department = $request->department ?? 'Not specified';
-        $level = $request->level ?? 'Not specified';
-        $workMode = $request->work_mode ?? 'Not specified';
+            $department = $request->department ?? 'Not specified';
+            $level = $request->level ?? 'Not specified';
+            $workMode = $request->work_mode ?? 'Not specified';
 
-        $prompt = <<<PROMPT
+            $prompt = <<<PROMPT
 Write a professional and engaging job description for the following role.
 
 Job Title: {$request->title}
@@ -265,79 +272,72 @@ Requirements:
 - Do not use bullet points.
 PROMPT;
 
-        $response = Http::withToken($apiKey)
-            ->acceptJson()
-            ->timeout(60)
-            ->post('https://api.groq.com/openai/v1/chat/completions', [
-                'model' => config(
-                    'services.groq.model',
-                    'llama-3.3-70b-versatile'
-                ),
-
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' =>
-                            'You are a professional HR and job description writing assistant. Write clear, realistic, engaging job descriptions without inventing company-specific information.'
+            $response = Http::withToken($apiKey)
+                ->acceptJson()
+                ->timeout(60)
+                ->post('https://api.groq.com/openai/v1/chat/completions', [
+                    'model' => config(
+                        'services.groq.model',
+                        'llama-3.3-70b-versatile'
+                    ),
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => 'You are a professional HR and job description writing assistant. Write clear, realistic, engaging job descriptions without inventing company-specific information.'
+                        ],
+                        [
+                            'role' => 'user',
+                            'content' => $prompt
+                        ],
                     ],
-                    [
-                        'role' => 'user',
-                        'content' => $prompt
-                    ],
-                ],
+                    'temperature' => 0.5,
+                    'max_tokens' => 700,
+                    'stream' => false,
+                ]);
 
-                'temperature' => 0.5,
-                'max_tokens' => 700,
-                'stream' => false,
+            if (!$response->successful()) {
+                Log::error('Groq Job Description Error', [
+                    'status' => $response->status(),
+                    'response' => $response->json(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Groq AI request failed.',
+                    'details' => $response->json(),
+                ], 500);
+            }
+
+            $description = data_get(
+                $response->json(),
+                'choices.0.message.content'
+            );
+
+            if (!$description) {
+                Log::error('Groq returned empty job description', [
+                    'response' => $response->json(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Groq returned an empty response.'
+                ], 500);
+            }
+
+            return response()->json([
+                'description' => trim($description)
             ]);
-
-        if (!$response->successful()) {
-
-            Log::error('Groq Job Description Error', [
-                'status' => $response->status(),
-                'response' => $response->json(),
+        } catch (\Throwable $e) {
+            Log::error('Groq Job Description Exception', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
 
             return response()->json([
-                'message' => 'Groq AI request failed.',
-                'details' => $response->json(),
+                'message' => 'Failed to generate job description.',
+                'error' => $e->getMessage(),
             ], 500);
         }
-
-        $description = data_get(
-            $response->json(),
-            'choices.0.message.content'
-        );
-
-        if (!$description) {
-
-            Log::error('Groq returned empty job description', [
-                'response' => $response->json(),
-            ]);
-
-            return response()->json([
-                'message' => 'Groq returned an empty response.'
-            ], 500);
-        }
-
-        return response()->json([
-            'description' => trim($description)
-        ]);
-
-    } catch (\Throwable $e) {
-
-        Log::error('Groq Job Description Exception', [
-            'message' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
-        return response()->json([
-            'message' => 'Failed to generate job description.',
-            'error' => $e->getMessage(),
-        ], 500);
     }
-}
 
     public function applicants(Request $request, JobMatchingService $matchingService)
     {
@@ -352,6 +352,7 @@ PROMPT;
         $applications = Application::with([
             'student.user',
             'student.skills',
+            'resume',
             'jobPost.skills'
         ])
             ->whereHas('jobPost', function ($query) use ($company) {
@@ -361,8 +362,8 @@ PROMPT;
             ->get();
 
         $applicants = $applications->map(function ($application) use ($matchingService) {
-
             $student = $application->student;
+            $resume = $application->resume;
 
             $match = $matchingService->calculateMatch(
                 $student,
@@ -372,29 +373,23 @@ PROMPT;
             return [
                 'id' => (int) $application->id,
                 'application_id' => (int) $application->id,
-                'name' => $student->user->name ?? 'N/A',
-                'title' => $student->headline ?? '',
+                'name' => $resume?->full_name ?? $student->user->name ?? 'N/A',
+                'title' => $resume?->professional_title ?? $student->headline ?? '',
                 'university' => $student->university ?? '',
                 'location' => $student->location ?? '',
                 'avatar' => $student->avatar,
                 'job_id' => $application->jobPost->id,
                 'job' => $application->jobPost->title ?? '',
                 'status' => $application->status,
-               'match' => $match['match'],
-'matching_skills' => $match['matching_skills'],
-'missing_skills' => $match['missing_skills'],
-
-'match_source' => $application->match_source,
-'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
-
-'skills' => $student->skills
-                    ->pluck('name')
-                    ->values(),
+                'match' => $match['match'],
+                'matching_skills' => $match['matching_skills'],
+                'missing_skills' => $match['missing_skills'],
+                'match_source' => $application->match_source,
+                'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
+                'skills' => $resume?->skills ?? $student->skills->pluck('name')->values(),
                 'email' => $student->user->email ?? '',
-                'applied_at' => optional($application->applied_at)
-                    ->format('Y-m-d'),
+                'applied_at' => optional($application->applied_at)->format('Y-m-d'),
             ];
-
         });
 
         return response()->json($applicants);
@@ -413,10 +408,6 @@ PROMPT;
         $application = Application::with([
             'student.user',
             'student.skills',
-            'student.education',
-            'student.experience',
-            'student.projects',
-            'student.certificates',
             'resume',
             'notes',
             'timeline',
@@ -435,15 +426,19 @@ PROMPT;
         }
 
         $student = $application->student;
+        $resume = $application->resume;
+        $match = $this->getApplicantMatch($application, $matchingService);
+
         return response()->json([
             'application_id' => $application->id,
             'status' => $application->status,
+
             'student' => [
-                'name' => $student->user->name,
+                'name' => $resume?->full_name ?? $student->user->name,
                 'email' => $student->user->email,
                 'phone' => $student->phone,
                 'avatar' => $student->avatar,
-                'headline' => $student->headline,
+                'headline' => $resume?->professional_title ?? $student->headline,
                 'university' => $student->university,
                 'major' => $student->major,
                 'gpa' => $student->gpa,
@@ -451,33 +446,51 @@ PROMPT;
                 'portfolio' => $student->portfolio,
                 'linkedin' => $student->linkedin,
                 'github' => $student->github,
-                'bio' => $student->bio,
+                'bio' => $resume?->summary ?? $student->bio,
             ],
-            'skills' => $student->skills
-                ->pluck('name')
-                ->values(),
-            'education' => $student->education,
-            'experience' => $student->experience,
-            'projects' => $student->projects,
-            'certificates' => $student->certificates,
-            'resume' => $application->resume ? [
-                'id' => $application->resume->id,
-                'title' => $application->resume->title,
-                'template' => $application->resume->template,
-                'file_path' => $application->resume->file_path,
-                'updated_at' => $application->resume->updated_at,
+
+            'skills' => $resume?->skills ?? $student->skills->pluck('name')->values(),
+
+            'education' => $resume?->education ?? [],
+
+            'experience' => $resume?->experience ?? [],
+
+            'projects' => $resume?->projects ?? [],
+
+            'certificates' => $resume?->certificates ?? [],
+
+            'languages' => $resume?->languages ?? [],
+
+            'resume' => $resume ? [
+                'id' => $resume->id,
+                'title' => $resume->title,
+                'template' => $resume->template,
+                'full_name' => $resume->full_name,
+                'professional_title' => $resume->professional_title,
+                'summary' => $resume->summary,
+                'experience' => $resume->experience ?? [],
+                'education' => $resume->education ?? [],
+                'skills' => $resume->skills ?? [],
+                'projects' => $resume->projects ?? [],
+                'certificates' => $resume->certificates ?? [],
+                'languages' => $resume->languages ?? [],
+                'file_path' => $resume->file_path,
+                'is_public' => $resume->is_public,
+                'updated_at' => $resume->updated_at,
             ] : null,
-'match' => [
-    'percentage' => $this->getApplicantMatch($application, $matchingService)['percentage'],
-    'matching_skills' => $this->getApplicantMatch($application, $matchingService)['matching_skills'],
-    'missing_skills' => $this->getApplicantMatch($application, $matchingService)['missing_skills'],
-    'source' => $application->match_source,
-    'analysis' => $application->match_analysis,
-    'reasons' => $this->generateMatchReasons(
-        $application,
-        $this->getApplicantMatch($application, $matchingService)
-    )
-],
+
+            'match' => [
+                'percentage' => $match['percentage'],
+                'matching_skills' => $match['matching_skills'],
+                'missing_skills' => $match['missing_skills'],
+                'source' => $application->match_source,
+                'analysis' => $application->match_analysis,
+                'reasons' => $this->generateMatchReasons(
+                    $application,
+                    $match
+                )
+            ],
+
             'notes' => $application->notes,
             'timeline' => $application->timeline,
             'ai_summary' => null,
@@ -493,7 +506,7 @@ PROMPT;
         $reasons = [];
 
         if (count($match['matching_skills']) > 0) {
-            $reasons[] = "Matched skills: " . implode(", ", $match['matching_skills']);
+            $reasons[] = 'Matched skills: ' . implode(', ', $match['matching_skills']);
         }
 
         if (
@@ -501,7 +514,7 @@ PROMPT;
             $application->jobPost->required_major &&
             strtolower(trim($application->student->major)) === strtolower(trim($application->jobPost->required_major))
         ) {
-            $reasons[] = "Major matches job requirements";
+            $reasons[] = 'Major matches job requirements';
         }
 
         if (
@@ -509,7 +522,7 @@ PROMPT;
             $application->jobPost->location &&
             strtolower(trim($application->student->location)) === strtolower(trim($application->jobPost->location))
         ) {
-            $reasons[] = "Same location";
+            $reasons[] = 'Same location';
         }
 
         if (
@@ -517,11 +530,11 @@ PROMPT;
             $application->jobPost->employment_type &&
             strtolower(trim($application->student->preferred_employment_type)) === strtolower(trim($application->jobPost->employment_type))
         ) {
-            $reasons[] = "Employment type matches";
+            $reasons[] = 'Employment type matches';
         }
 
         if (empty($reasons)) {
-            $reasons[] = "Candidate profile matches job requirements";
+            $reasons[] = 'Candidate profile matches job requirements';
         }
 
         return $reasons;
@@ -540,9 +553,7 @@ PROMPT;
         $application = Application::with([
             'student.user',
             'student.skills',
-            'student.education',
-            'student.experience',
-            'student.projects',
+            'resume',
             'jobPost'
         ])
             ->where('id', $id)
@@ -558,20 +569,34 @@ PROMPT;
         }
 
         $student = $application->student;
-        $skills = $student->skills
-            ->pluck('name')
-            ->implode(', ');
+        $resume = $application->resume;
 
-        $experience = $student->experience
+        $skills = $resume?->skills
+            ? implode(', ', $resume->skills)
+            : $student->skills->pluck('name')->implode(', ');
+
+        $experience = collect($resume?->experience ?? [])
             ->map(function ($exp) {
-                return $exp->position .
-                    " at " .
-                    $exp->company;
+                if (is_array($exp)) {
+                    $position = $exp['position'] ?? $exp['title'] ?? '';
+                    $company = $exp['company'] ?? '';
+                    return trim($position . ($company ? ' at ' . $company : ''));
+                }
+
+                return (string) $exp;
             })
+            ->filter()
             ->implode(', ');
 
-        $projects = $student->projects
-            ->pluck('title')
+        $projects = collect($resume?->projects ?? [])
+            ->map(function ($project) {
+                if (is_array($project)) {
+                    return $project['title'] ?? $project['name'] ?? '';
+                }
+
+                return (string) $project;
+            })
+            ->filter()
             ->implode(', ');
 
         $prompt = "
@@ -580,10 +605,10 @@ You are an AI recruitment assistant.
 Analyze this candidate for a job application.
 
 Candidate Name:
-{$student->user->name}
+" . ($resume?->full_name ?? $student->user->name) . "
 
-Headline:
-{$student->headline}
+Professional Title:
+" . ($resume?->professional_title ?? $student->headline) . "
 
 Major:
 {$student->major}
@@ -591,8 +616,8 @@ Major:
 GPA:
 {$student->gpa}
 
-Bio:
-{$student->bio}
+Summary:
+" . ($resume?->summary ?? $student->bio) . "
 
 Skills:
 {$skills}
@@ -617,14 +642,13 @@ Include:
 Keep it concise (one paragraph).
 Do not use markdown.
 Return a short professional hiring summary.
-
-Return plain text only.
-Do not use markdown symbols.";
+";
 
         try {
             $summary = $gemini->generate($prompt);
+
             return response()->json([
-                'candidate' => $student->user->name,
+                'candidate' => $resume?->full_name ?? $student->user->name,
                 'summary' => $summary
             ]);
         } catch (\Exception $e) {
@@ -648,10 +672,6 @@ Do not use markdown symbols.";
         $application = Application::with([
             'student.user',
             'student.skills',
-            'student.education',
-            'student.experience',
-            'student.projects',
-            'student.certificates',
             'resume',
             'notes',
             'timeline',
@@ -670,29 +690,40 @@ Do not use markdown symbols.";
         }
 
         $student = $application->student;
+        $resume = $application->resume;
 
-        $skills = $student->skills
-            ->pluck('name')
-            ->implode(', ');
+        $skills = $resume?->skills
+            ? implode(', ', $resume->skills)
+            : $student->skills->pluck('name')->implode(', ');
 
-        $projects = $student->projects
-            ->pluck('title')
+        $projects = collect($resume?->projects ?? [])
+            ->map(function ($project) {
+                if (is_array($project)) {
+                    return $project['title'] ?? $project['name'] ?? '';
+                }
+
+                return (string) $project;
+            })
+            ->filter()
             ->implode(', ');
 
         $prompt = "
 Analyze this job candidate briefly.
 
 Name:
-{$student->user->name}
+" . ($resume?->full_name ?? $student->user->name) . "
 
-Headline:
-{$student->headline}
+Professional Title:
+" . ($resume?->professional_title ?? $student->headline) . "
 
 Major:
 {$student->major}
 
 GPA:
 {$student->gpa}
+
+Summary:
+" . ($resume?->summary ?? $student->bio) . "
 
 Skills:
 {$skills}
@@ -709,45 +740,72 @@ Provide a short professional hiring summary.
         try {
             $aiSummary = $gemini->generate($prompt);
         } catch (\Exception $e) {
-            $aiSummary = "AI summary unavailable";
+            $aiSummary = 'AI summary unavailable';
         }
+
+        $match = $this->getApplicantMatch($application, $matchingService);
 
         return response()->json([
             'application_id' => $application->id,
 
             'student' => [
-                'name' => $student->user->name,
+                'name' => $resume?->full_name ?? $student->user->name,
                 'email' => $student->user->email,
                 'phone' => $student->phone,
                 'avatar' => $student->avatar,
-                'headline' => $student->headline,
+                'headline' => $resume?->professional_title ?? $student->headline,
                 'university' => $student->university,
                 'major' => $student->major,
                 'gpa' => $student->gpa,
                 'location' => $student->location,
-                'bio' => $student->bio,
+                'bio' => $resume?->summary ?? $student->bio,
                 'portfolio' => $student->portfolio,
                 'linkedin' => $student->linkedin,
                 'github' => $student->github,
             ],
 
-            'skills' => $student->skills
-                ->pluck('name')
-                ->values(),
+            'skills' => $resume?->skills ?? $student->skills->pluck('name')->values(),
 
-            'resume' => $application->resume,
+            'education' => $resume?->education ?? [],
 
-'match' => [
-    'percentage' => $this->getApplicantMatch($application, $matchingService)['percentage'],
-    'matching_skills' => $this->getApplicantMatch($application, $matchingService)['matching_skills'],
-    'missing_skills' => $this->getApplicantMatch($application, $matchingService)['missing_skills'],
-    'source' => $application->match_source,
-    'analysis' => $application->match_analysis,
-    'reasons' => $this->generateMatchReasons(
-        $application,
-        $this->getApplicantMatch($application, $matchingService)
-    )
-],
+            'experience' => $resume?->experience ?? [],
+
+            'projects' => $resume?->projects ?? [],
+
+            'certificates' => $resume?->certificates ?? [],
+
+            'languages' => $resume?->languages ?? [],
+
+            'resume' => $resume ? [
+                'id' => $resume->id,
+                'title' => $resume->title,
+                'template' => $resume->template,
+                'full_name' => $resume->full_name,
+                'professional_title' => $resume->professional_title,
+                'summary' => $resume->summary,
+                'experience' => $resume->experience ?? [],
+                'education' => $resume->education ?? [],
+                'skills' => $resume->skills ?? [],
+                'projects' => $resume->projects ?? [],
+                'certificates' => $resume->certificates ?? [],
+                'languages' => $resume->languages ?? [],
+                'file_path' => $resume->file_path,
+                'is_public' => $resume->is_public,
+                'updated_at' => $resume->updated_at,
+            ] : null,
+
+            'match' => [
+                'percentage' => $match['percentage'],
+                'matching_skills' => $match['matching_skills'],
+                'missing_skills' => $match['missing_skills'],
+                'source' => $application->match_source,
+                'analysis' => $application->match_analysis,
+                'reasons' => $this->generateMatchReasons(
+                    $application,
+                    $match
+                )
+            ],
+
             'notes' => $application->notes,
 
             'timeline' => $application->timeline,
@@ -803,7 +861,6 @@ Provide a short professional hiring summary.
         $applications = $job->applications;
 
         return response()->json([
-
             'id' => $job->id,
             'title' => $job->title,
             'department' => $job->department,
@@ -824,15 +881,12 @@ Provide a short professional hiring summary.
 
             'stats' => [
                 'applicants' => $applications->count(),
-
                 'interview' => $applications
                     ->where('status', 'Interview')
                     ->count(),
-
                 'shortlisted' => $applications
                     ->where('status', 'Shortlisted')
                     ->count(),
-
                 'hired' => $applications
                     ->whereIn('status', ['Accepted', 'Hired'])
                     ->count(),
@@ -843,26 +897,23 @@ Provide a short professional hiring summary.
                 ->take(5)
                 ->values()
                 ->map(function ($application) use ($job, $matchingService) {
-
                     $matchData = $matchingService->calculateMatch(
                         $application->student,
                         $job
                     );
 
                     return [
-                     'id' => $application->id,
-'application_id' => $application->id,
-'name' => $application->student->user->name ?? 'Applicant',
-'headline' => $application->student->headline ?? '',
-'avatar' => $application->student->avatar ?? null,
-'match' => (int) ($matchData['match'] ?? 0),
-'match_source' => $application->match_source,
-'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
-'status' => $application->status,
+                        'id' => $application->id,
+                        'application_id' => $application->id,
+                        'name' => $application->student->user->name ?? 'Applicant',
+                        'headline' => $application->student->headline ?? '',
+                        'avatar' => $application->student->avatar ?? null,
+                        'match' => (int) ($matchData['match'] ?? 0),
+                        'match_source' => $application->match_source,
+                        'match_recommendation' => $application->match_analysis['recommendation'] ?? null,
+                        'status' => $application->status,
                     ];
-
                 }),
-
         ]);
     }
 
@@ -971,11 +1022,9 @@ Provide a short professional hiring summary.
         ]);
 
         if (isset($validated['skills'])) {
-
             $skillIds = [];
 
             foreach ($validated['skills'] as $skillName) {
-
                 $skill = Skill::firstOrCreate([
                     'name' => $skillName
                 ]);
@@ -1080,44 +1129,61 @@ Provide a short professional hiring summary.
 
         return response()->json(
             $applications->map(function ($application) {
-
                 $student = $application->student;
+                $resume = $application->resume;
 
                 return [
                     'id' => $application->id,
                     'status' => $application->status,
 
                     'student' => [
-                        'name' => $student->user->name ?? '',
+                        'name' => $resume?->full_name ?? $student->user->name ?? '',
                         'email' => $student->user->email ?? '',
                         'phone' => $student->phone,
                         'avatar' => $student->avatar,
-                        'headline' => $student->headline,
+                        'headline' => $resume?->professional_title ?? $student->headline,
                         'university' => $student->university,
                         'major' => $student->major,
                         'gpa' => $student->gpa,
                         'location' => $student->location,
-                        'bio' => $student->bio,
+                        'bio' => $resume?->summary ?? $student->bio,
                         'portfolio' => $student->portfolio,
                         'linkedin' => $student->linkedin,
                         'github' => $student->github,
                     ],
 
-                    'skills' => $student->skills
-                        ->pluck('name')
-                        ->values(),
+                    'skills' => $resume?->skills ?? $student->skills->pluck('name')->values(),
 
-                    'education' => $student->education,
+                    'education' => $resume?->education ?? [],
 
-                    'resume' => $application->resume ? [
-                        'id' => $application->resume->id,
-                        'title' => $application->resume->title,
-                        'file_path' => $application->resume->file_path,
+                    'experience' => $resume?->experience ?? [],
+
+                    'projects' => $resume?->projects ?? [],
+
+                    'certificates' => $resume?->certificates ?? [],
+
+                    'languages' => $resume?->languages ?? [],
+
+                    'resume' => $resume ? [
+                        'id' => $resume->id,
+                        'title' => $resume->title,
+                        'template' => $resume->template,
+                        'full_name' => $resume->full_name,
+                        'professional_title' => $resume->professional_title,
+                        'summary' => $resume->summary,
+                        'experience' => $resume->experience ?? [],
+                        'education' => $resume->education ?? [],
+                        'skills' => $resume->skills ?? [],
+                        'projects' => $resume->projects ?? [],
+                        'certificates' => $resume->certificates ?? [],
+                        'languages' => $resume->languages ?? [],
+                        'file_path' => $resume->file_path,
+                        'is_public' => $resume->is_public,
+                        'updated_at' => $resume->updated_at,
                     ] : null,
 
                     'shortlisted_at' => $application->updated_at,
                 ];
-
             })
         );
     }
@@ -1218,7 +1284,6 @@ Provide a short professional hiring summary.
             ->latest()
             ->get()
             ->map(function ($interview) {
-
                 $student = $interview->application->student;
 
                 return [
@@ -1242,24 +1307,17 @@ Provide a short professional hiring summary.
         $request->validate([
             'application_ids' => 'required|array|min:1',
             'application_ids.*' => 'exists:applications,id',
-
             'interview_date' => 'required|date',
-
             'start_time' => 'required',
-
             'duration' => 'required|integer|min:5',
-
             'type' => 'required|in:Online,Onsite',
-
             'meeting_link' => 'nullable|string',
-
             'location' => 'nullable|string',
         ]);
 
         DB::beginTransaction();
 
         try {
-
             $currentTime = Carbon::parse(
                 $request->interview_date . ' ' . $request->start_time
             );
@@ -1267,71 +1325,50 @@ Provide a short professional hiring summary.
             $count = 0;
 
             foreach ($request->application_ids as $applicationId) {
-
                 $application = Application::findOrFail($applicationId);
 
                 if ($application->jobPost->company_id != auth()->user()->company->id) {
-
                     DB::rollBack();
 
                     return response()->json([
                         'message' => 'Unauthorized.'
                     ], 403);
-
                 }
 
                 if (Interview::where('application_id', $application->id)->exists()) {
-
                     DB::rollBack();
 
                     return response()->json([
                         'message' => 'One or more selected candidates already have an interview scheduled.'
                     ], 422);
-
                 }
 
                 $this->createInterview(
-
                     $application,
-
                     $currentTime->format('Y-m-d H:i:s'),
-
                     $request->type,
-
                     $request->meeting_link,
-
                     $request->location
-
                 );
 
                 $count++;
 
                 $currentTime->addMinutes($request->duration);
-
             }
 
             DB::commit();
 
             return response()->json([
-
                 'message' => 'Interviews scheduled successfully.',
-
                 'scheduled_count' => $count
-
             ], 201);
-
         } catch (\Exception $e) {
-
             DB::rollBack();
 
             return response()->json([
-
                 'message' => 'Scheduling failed.',
-
                 'error' => $e->getMessage()
-
             ], 500);
-
         }
     }
 }

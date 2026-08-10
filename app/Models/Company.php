@@ -52,6 +52,7 @@ class Company extends Model
         'phone',
         'location',
         'approval_status',
+        'is_verified',
     ];
 
     public function user()

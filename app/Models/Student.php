@@ -31,7 +31,8 @@ class Student extends Model
         'headline',
         'location',
         'gpa',
-        'preferred_employment_type'
+        'preferred_employment_type',
+        'verification_status'
     ];
 
 
