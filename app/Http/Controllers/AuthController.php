@@ -7,6 +7,9 @@ use App\Models\Student;
 use App\Models\Company;
 use App\Services\NotificationService;
 use App\Services\AutomaticVerificationService;
+use App\Models\EmailVerification;
+use App\Mail\EmailVerificationCode;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -18,11 +21,17 @@ class AuthController extends Controller
     public function register(Request $request, AutomaticVerificationService $verificationService)
     {
         $data = $request->validate([
-            'name' => 'required',
+            'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users',
-            'password' => 'required|min:6',
+            'password' => 'required|min:6|confirmed',
+            'password_confirmation' => 'required',
             'role' => 'required|in:student,company',
-            'industry' => 'nullable|string|max:255',
+
+            // Student
+            'university' => 'required_if:role,student|string|max:255',
+
+            // Company
+            'industry' => 'required_if:role,company|string|max:255',
         ]);
 
         try {
@@ -38,8 +47,21 @@ class AuthController extends Controller
 
                     $student = Student::create([
                         'user_id' => $user->id,
+                        'university' => $data['university'],
+                        'verification_status' => 'Pending',
                     ]);
 
+                    $code = random_int(100000, 999999);
+
+                    EmailVerification::create([
+                        'user_id' => $user->id,
+                        'code' => $code,
+                        'expires_at' => now()->addMinutes(10),
+                    ]);
+
+                    Mail::to($user->email)->send(
+                        new EmailVerificationCode($code)
+                    );
                     // Automatic verification
                     $verificationService->verifyStudent($student);
 
@@ -48,12 +70,25 @@ class AuthController extends Controller
                     $company = Company::create([
                         'user_id' => $user->id,
                         'company_name' => $data['name'],
-                        'industry' => $data['industry'] ?? null,
+                        'industry' => $data['industry'],
                         'approval_status' => 'Pending',
+                        'is_verified' => false,
                     ]);
 
+                    $code = random_int(100000, 999999);
+
+                    EmailVerification::create([
+                        'user_id' => $user->id,
+                        'code' => $code,
+                        'expires_at' => now()->addMinutes(10),
+                    ]);
+
+                    Mail::to($user->email)->send(
+                        new EmailVerificationCode($code)
+                    );
+
                     // Automatic company verification
-                    $verificationService->verifyCompany($company);
+                    //  $verificationService->verifyCompany($company);
                 }
             });
 
@@ -62,8 +97,8 @@ class AuthController extends Controller
             }
 
             return response()->json([
-                'message' => 'User registered successfully',
-                'user' => $user,
+                'message' => 'Registration successful. A verification code has been sent to your email.',
+                'user_id' => $user->id,
             ], 201);
 
         } catch (Exception $e) {
@@ -96,6 +131,12 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'This account is not registered as a ' . $data['role'],
             ], 401);
+        }
+
+        if (!$user->email_verified_at) {
+            return response()->json([
+                'message' => 'Please verify your email before logging in.',
+            ], 403);
         }
 
         if (strtolower($user->role) === 'company') {
@@ -161,6 +202,62 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Logged out successfully',
+        ]);
+    }
+
+
+    public function verifyEmail(Request $request, AutomaticVerificationService $verificationService)
+    {
+        $data = $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'code' => 'required|digits:6',
+        ]);
+
+        $verification = EmailVerification::where('user_id', $data['user_id'])
+            ->where('code', $data['code'])
+            ->whereNull('verified_at')
+            ->latest()
+            ->first();
+
+        if (!$verification) {
+            return response()->json([
+                'message' => 'Invalid verification code.',
+            ], 422);
+        }
+
+        if ($verification->expires_at->isPast()) {
+            return response()->json([
+                'message' => 'Verification code has expired.',
+            ], 422);
+        }
+
+        $user = User::find($data['user_id']);
+
+        $verification->update([
+            'verified_at' => now(),
+        ]);
+
+        $user->update([
+            'email_verified_at' => now(),
+        ]);
+
+        // Automatic verification AFTER email verification
+        if (strtolower($user->role) === 'student') {
+
+            $verificationService->verifyStudent(
+                $user->student
+            );
+
+        } elseif (strtolower($user->role) === 'company') {
+
+            $verificationService->verifyCompany(
+                $user->company
+            );
+        }
+
+        return response()->json([
+            'message' => 'Email verified successfully.',
+            'user' => $user->fresh()->load('student', 'company'),
         ]);
     }
 }

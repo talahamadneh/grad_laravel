@@ -29,6 +29,7 @@ use App\Http\Controllers\Admin\AdminCompanyController;
 Route::get('/landing/stats', [LandingController::class, 'stats']);
 
 Route::post('/register', [AuthController::class, 'register']);
+Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
 Route::post('/login', [AuthController::class, 'login']);
 
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);

@@ -17,9 +17,9 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'role'
+        'role',
+        'email_verified_at',
     ];
-
     protected $hidden = [
         'password',
         'remember_token',
@@ -70,12 +70,12 @@ class User extends Authenticatable
     }
 
     public function blockedUsers()
-{
-    return $this->belongsToMany(
-        User::class,
-        'user_blocks',
-        'user_id',
-        'blocked_user_id'
-    )->withTimestamps();
-}
+    {
+        return $this->belongsToMany(
+            User::class,
+            'user_blocks',
+            'user_id',
+            'blocked_user_id'
+        )->withTimestamps();
+    }
 }
