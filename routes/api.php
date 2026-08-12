@@ -25,13 +25,15 @@ use App\Http\Controllers\InterviewFeedbackController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminCompanyController;
+use App\Http\Controllers\Admin\AdminStudentController;
 
 Route::get('/landing/stats', [LandingController::class, 'stats']);
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
-Route::post('/login', [AuthController::class, 'login']);
 
+Route::post('/login', [AuthController::class, 'login']);
+Route::post('/resend-verification', [AuthController::class, 'resendVerification']);
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -189,10 +191,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
 
     // Admin company routes
+    Route::get('/admin/companies', [AdminCompanyController::class, 'index']);
     Route::get('/admin/companies/pending', [AdminCompanyController::class, 'pending']);
     Route::get('/admin/companies/{id}', [AdminCompanyController::class, 'show']);
     Route::patch('/admin/companies/{id}/approve', [AdminCompanyController::class, 'approve']);
     Route::patch('/admin/companies/{id}/reject', [AdminCompanyController::class, 'reject']);
     Route::patch('/admin/companies/{id}/suspend', [AdminCompanyController::class, 'suspend']);
-});
+
+    // Admin student routes
+    Route::get('/admin/students', [AdminStudentController::class, 'index']);
+    Route::get('/admin/students/{student}', [AdminStudentController::class, 'show']);
+    Route::patch('/admin/students/{student}/approve', [AdminStudentController::class, 'approve']);
+    Route::patch('/admin/students/{student}/reject', [AdminStudentController::class, 'reject']);
+    Route::patch('/admin/students/{student}/suspend', [AdminStudentController::class, 'suspend']);
+    Route::patch('/admin/students/{student}/restore', [AdminStudentController::class, 'restore']);
+    Route::patch('/admin/students/{student}/activate', [AdminStudentController::class, 'activate']);
+
+ });
 

@@ -118,7 +118,6 @@ class AuthController extends Controller
             'role' => 'required|in:student,company,admin',
         ]);
 
-
         $user = User::where('email', $data['email'])->first();
 
         if (!$user || !Hash::check($data['password'], $user->password)) {
@@ -133,7 +132,23 @@ class AuthController extends Controller
             ], 401);
         }
 
-        if (!$user->email_verified_at) {
+        // Check account status
+        if ($user->status === 'Suspended') {
+            return response()->json([
+                'message' => 'Your account has been suspended. Please contact the administrator.',
+            ], 403);
+        }
+
+        if ($user->status === 'Inactive') {
+            return response()->json([
+                'message' => 'Your account is inactive. Please contact the administrator.',
+            ], 403);
+        }
+
+        if (
+            in_array(strtolower($user->role), ['student', 'company']) &&
+            !$user->email_verified_at
+        ) {
             return response()->json([
                 'message' => 'Please verify your email before logging in.',
             ], 403);
@@ -214,15 +229,26 @@ class AuthController extends Controller
         ]);
 
         $verification = EmailVerification::where('user_id', $data['user_id'])
-            ->where('code', $data['code'])
             ->whereNull('verified_at')
             ->latest()
             ->first();
 
         if (!$verification) {
             return response()->json([
-                'message' => 'Invalid verification code.',
+                'message' => 'No active verification code found.',
             ], 422);
+        }
+
+
+        // Check temporary lock
+        if (
+            $verification->locked_until &&
+            $verification->locked_until->isFuture()
+        ) {
+            return response()->json([
+                'message' => 'Too many incorrect attempts. Please try again later.',
+                'locked_until' => $verification->locked_until,
+            ], 429);
         }
 
         if ($verification->expires_at->isPast()) {
@@ -230,6 +256,31 @@ class AuthController extends Controller
                 'message' => 'Verification code has expired.',
             ], 422);
         }
+
+        if ((string) $verification->code !== (string) $data['code']) {
+
+            $verification->increment('attempts');
+
+            $verification->refresh();
+
+            if ($verification->attempts >= 3) {
+
+                $verification->update([
+                    'locked_until' => now()->addMinutes(10),
+                ]);
+
+                return response()->json([
+                    'message' => 'Too many incorrect attempts. Verification is temporarily locked for 10 minutes.',
+                    'locked_until' => $verification->locked_until,
+                ], 429);
+            }
+
+            return response()->json([
+                'message' => 'Invalid verification code.',
+                'attempts_remaining' => 3 - $verification->attempts,
+            ], 422);
+        }
+
 
         $user = User::find($data['user_id']);
 
@@ -258,6 +309,60 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Email verified successfully.',
             'user' => $user->fresh()->load('student', 'company'),
+        ]);
+    }
+
+    public function resendVerification(Request $request)
+    {
+        $data = $request->validate([
+            'user_id' => 'required|exists:users,id',
+        ]);
+
+        $user = User::find($data['user_id']);
+
+        // Already verified
+        if ($user->email_verified_at) {
+            return response()->json([
+                'message' => 'Email is already verified.',
+            ], 400);
+        }
+
+        // Get latest verification record
+        $verification = EmailVerification::where('user_id', $user->id)
+            ->whereNull('verified_at')
+            ->latest()
+            ->first();
+
+        // Still locked
+        if (
+            $verification &&
+            $verification->locked_until &&
+            $verification->locked_until->isFuture()
+        ) {
+            return response()->json([
+                'message' => 'Too many incorrect attempts. Please wait until the lock expires before requesting a new code.',
+                'locked_until' => $verification->locked_until,
+            ], 429);
+        }
+
+        // Generate new code
+        $code = random_int(100000, 999999);
+
+        // Create new verification record
+        EmailVerification::create([
+            'user_id' => $user->id,
+            'code' => $code,
+            'attempts' => 0,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        // Send new code
+        Mail::to($user->email)->send(
+            new EmailVerificationCode($code)
+        );
+
+        return response()->json([
+            'message' => 'A new verification code has been sent to your email.',
         ]);
     }
 }

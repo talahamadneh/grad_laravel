@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Services\AdminActivityLogService;
+use App\Services\AutomaticVerificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -13,8 +14,10 @@ class AdminCompanyController extends Controller
     /**
      * Get all companies.
      */
-    public function index(Request $request)
-    {
+    public function index(
+        Request $request,
+        AutomaticVerificationService $verificationService
+    ) {
         $query = Company::with('user')
             ->withCount('jobPosts');
 
@@ -37,49 +40,28 @@ class AdminCompanyController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Add reports count + trust score
+        | Add verification score + risk level
         |--------------------------------------------------------------------------
         */
 
-        $companies->transform(function ($company) {
+        $companies->transform(function ($company) use ($verificationService) {
 
-            // Number of reports against this company's user
-            $reportsCount = DB::table('message_reports')
-                ->where('reported_user_id', $company->user_id)
-                ->count();
+            $scoreData =
+                $verificationService->calculateCompanyVerificationScore(
+                    $company
+                );
 
-            /*
-            |--------------------------------------------------------------------------
-            | Trust Score
-            |--------------------------------------------------------------------------
-            |
-            | Basic automatic score:
-            | Start from 100
-            | - Pending reports: -10 each
-            | - Rejected company: -30
-            | - Suspended company: -50
-            |
-            */
+            $company->verification_score =
+                $scoreData['verification_score'];
 
-            $trustScore = 100;
+            $company->risk_level =
+                $scoreData['risk_level'];
 
-            if ($reportsCount > 0) {
-                $trustScore -= ($reportsCount * 10);
-            }
+            $company->recommendation =
+                $scoreData['recommendation'];
 
-            if ($company->approval_status === 'Rejected') {
-                $trustScore -= 30;
-            }
-
-            if ($company->approval_status === 'Suspended') {
-                $trustScore -= 50;
-            }
-
-            // Keep score between 0 and 100
-            $trustScore = max(0, min(100, $trustScore));
-
-            $company->reports_count = $reportsCount;
-            $company->trust_score = $trustScore;
+            $company->reports_count =
+                $scoreData['reports_count'];
 
             return $company;
         });
@@ -94,30 +76,33 @@ class AdminCompanyController extends Controller
     /**
      * Get companies that need admin review.
      */
-    public function pending()
-    {
+    public function pending(
+        AutomaticVerificationService $verificationService
+    ) {
         $companies = Company::with('user')
             ->withCount('jobPosts')
             ->where('approval_status', 'Pending')
             ->latest()
             ->get();
 
-        $companies->transform(function ($company) {
+        $companies->transform(function ($company) use ($verificationService) {
 
-            $reportsCount = DB::table('message_reports')
-                ->where('reported_user_id', $company->user_id)
-                ->count();
+            $scoreData =
+                $verificationService->calculateCompanyVerificationScore(
+                    $company
+                );
 
-            $trustScore = 100;
+            $company->verification_score =
+                $scoreData['verification_score'];
 
-            if ($reportsCount > 0) {
-                $trustScore -= ($reportsCount * 10);
-            }
+            $company->risk_level =
+                $scoreData['risk_level'];
 
-            $trustScore = max(0, min(100, $trustScore));
+            $company->recommendation =
+                $scoreData['recommendation'];
 
-            $company->reports_count = $reportsCount;
-            $company->trust_score = $trustScore;
+            $company->reports_count =
+                $scoreData['reports_count'];
 
             return $company;
         });
@@ -132,8 +117,10 @@ class AdminCompanyController extends Controller
     /**
      * Get company details.
      */
-    public function show($id)
-    {
+    public function show(
+        $id,
+        AutomaticVerificationService $verificationService
+    ) {
         $company = Company::with('user')
             ->withCount('jobPosts')
             ->find($id);
@@ -144,40 +131,22 @@ class AdminCompanyController extends Controller
             ], 404);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Reports
-        |--------------------------------------------------------------------------
-        */
+        $scoreData =
+            $verificationService->calculateCompanyVerificationScore(
+                $company
+            );
 
-        $reportsCount = DB::table('message_reports')
-            ->where('reported_user_id', $company->user_id)
-            ->count();
+        $company->verification_score =
+            $scoreData['verification_score'];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Trust Score
-        |--------------------------------------------------------------------------
-        */
+        $company->risk_level =
+            $scoreData['risk_level'];
 
-        $trustScore = 100;
+        $company->recommendation =
+            $scoreData['recommendation'];
 
-        if ($reportsCount > 0) {
-            $trustScore -= ($reportsCount * 10);
-        }
-
-        if ($company->approval_status === 'Rejected') {
-            $trustScore -= 30;
-        }
-
-        if ($company->approval_status === 'Suspended') {
-            $trustScore -= 50;
-        }
-
-        $trustScore = max(0, min(100, $trustScore));
-
-        $company->reports_count = $reportsCount;
-        $company->trust_score = $trustScore;
+        $company->reports_count =
+            $scoreData['reports_count'];
 
         return response()->json([
             'company' => $company,
