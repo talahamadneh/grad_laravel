@@ -58,14 +58,15 @@ class AdminDashboardController extends Controller
             ->whereIn('status', [
                 'Under Review',
                 'Pending',
+                'Pending Review',
+                'Changes Requested',
             ])
             ->count();
 
-        // Reports that still need admin action
-        $reportsNeedReview = DB::table('message_reports')
+        // Abuse reports that still need admin action. message_reports remains as legacy workflow.
+        $reportsNeedReview = DB::table('abuse_reports')
             ->whereIn('status', [
                 'Pending',
-                'Reviewed',
             ])
             ->count();
 

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Application;
+use App\Models\AbuseReport;
 use App\Models\Company;
 use App\Models\Interview;
 use App\Models\JobPost;
@@ -27,6 +28,47 @@ class NotificationService
     public const COMPANY_DEADLINES = 'company_deadlines';
     public const COMPANY_INTERVIEWS = 'company_interviews';
     public const WEEKLY_APPLICATION_SUMMARY = 'weekly_application_summary';
+
+    public static function highRiskAbuseReport(AbuseReport $report)
+    {
+        $report->loadMissing('reporter');
+
+        return self::sendToAdminsOnceToday(
+            'High Priority: Abuse Report #' . $report->id,
+            "A high-risk {$report->reportable_type} abuse report needs review. Reason: {$report->reason}. Reporter: "
+                . ($report->reporter?->name ?? 'Unknown') . '.'
+        );
+    }
+
+    public static function jobNeedsManualReview(JobPost $job, array $validation = [])
+    {
+        $job->loadMissing('company');
+
+        $score = $validation['quality_score'] ?? $job->quality_score;
+
+        return self::sendToAdminsOnceToday(
+            'Action Required: Job Needs Manual Review',
+            "Job #{$job->id} ({$job->title}) from "
+                . ($job->company?->company_name ?? 'Unknown company')
+                . " needs manual review. Quality score: {$score}."
+        );
+    }
+
+    public static function companyNeedsReview(Company $company)
+    {
+        return self::sendToAdminsOnceToday(
+            'Action Required: Company Needs Review',
+            "Company #{$company->id} ({$company->company_name}) is pending admin review/approval."
+        );
+    }
+
+    public static function suspiciousActivity(string $title, string $message)
+    {
+        return self::sendToAdminsOnceToday(
+            'High Priority: ' . $title,
+            $message
+        );
+    }
 
     public static function studentRegistered(User $user)
     {
@@ -644,6 +686,26 @@ class NotificationService
         }
 
         return $notification;
+    }
+
+    public static function sendToAdmins($title, $message): array
+    {
+        return User::whereRaw('LOWER(role) = ?', ['admin'])
+            ->get()
+            ->map(fn (User $admin) => self::send($admin->id, $title, $message))
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    public static function sendToAdminsOnceToday($title, $message): array
+    {
+        return User::whereRaw('LOWER(role) = ?', ['admin'])
+            ->get()
+            ->map(fn (User $admin) => self::sendOnceToday($admin->id, $title, $message))
+            ->filter()
+            ->values()
+            ->all();
     }
 
     public static function sendOnceToday($userId, $title, $message, ?string $category = null)

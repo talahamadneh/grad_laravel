@@ -25,13 +25,22 @@ class JobPost extends Model
         'location',
         'deadline',
         'vacancies',
+        'required_major',
         'status',
-        'required_major'
+        'quality_score',
+        'moderation_issues',
+        'moderation_recommendation',
+        'moderation_note',
+        'moderated_at',
+        'reviewed_at',
     ];
 
     protected $casts = [
         'benefits' => 'array',
+        'moderation_issues' => 'array',
         'deadline' => 'date',
+        'moderated_at' => 'datetime',
+        'reviewed_at' => 'datetime',
     ];
 
     public function company()

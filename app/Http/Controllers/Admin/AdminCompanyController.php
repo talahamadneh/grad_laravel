@@ -18,6 +18,8 @@ class AdminCompanyController extends Controller
         Request $request,
         AutomaticVerificationService $verificationService
     ) {
+        $this->authorizeAdmin($request);
+
         $query = Company::with('user')
             ->withCount('jobPosts');
 
@@ -77,8 +79,11 @@ class AdminCompanyController extends Controller
      * Get companies that need admin review.
      */
     public function pending(
+        Request $request,
         AutomaticVerificationService $verificationService
     ) {
+        $this->authorizeAdmin($request);
+
         $companies = Company::with('user')
             ->withCount('jobPosts')
             ->where('approval_status', 'Pending')
@@ -118,9 +123,12 @@ class AdminCompanyController extends Controller
      * Get company details.
      */
     public function show(
+        Request $request,
         $id,
         AutomaticVerificationService $verificationService
     ) {
+        $this->authorizeAdmin($request);
+
         $company = Company::with('user')
             ->withCount('jobPosts')
             ->find($id);
@@ -157,8 +165,10 @@ class AdminCompanyController extends Controller
     /**
      * Approve company.
      */
-    public function approve($id)
+    public function approve(Request $request, $id)
     {
+        $this->authorizeAdmin($request);
+
         $company = Company::find($id);
 
         if (!$company) {
@@ -174,7 +184,8 @@ class AdminCompanyController extends Controller
 
         AdminActivityLogService::companyApproved(
             $company->id,
-            $company->company_name
+            $company->company_name,
+            $request->user()?->id
         );
 
         return response()->json([
@@ -187,8 +198,10 @@ class AdminCompanyController extends Controller
     /**
      * Reject company.
      */
-    public function reject($id)
+    public function reject(Request $request, $id)
     {
+        $this->authorizeAdmin($request);
+
         $company = Company::find($id);
 
         if (!$company) {
@@ -206,7 +219,9 @@ class AdminCompanyController extends Controller
             'Company Rejected',
             'Company',
             $company->id,
-            "{$company->company_name} was rejected by admin."
+            "{$company->company_name} was rejected by admin.",
+            'Admin',
+            $request->user()?->id
         );
 
         return response()->json([
@@ -219,8 +234,10 @@ class AdminCompanyController extends Controller
     /**
      * Suspend company.
      */
-    public function suspend($id)
+    public function suspend(Request $request, $id)
     {
+        $this->authorizeAdmin($request);
+
         $company = Company::find($id);
 
         if (!$company) {
@@ -236,12 +253,18 @@ class AdminCompanyController extends Controller
 
         AdminActivityLogService::companySuspended(
             $company->id,
-            $company->company_name
+            $company->company_name,
+            $request->user()?->id
         );
 
         return response()->json([
             'message' => 'Company suspended successfully.',
             'company' => $company->fresh(),
         ]);
+    }
+
+    private function authorizeAdmin(Request $request): void
+    {
+        abort_if(strtolower($request->user()?->role ?? '') !== 'admin', 403, 'Unauthorized. Admin access required.');
     }
 }

@@ -20,6 +20,8 @@ class AuthController extends Controller
 {
     public function register(Request $request, AutomaticVerificationService $verificationService)
     {
+        $company = null;
+
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users',
@@ -35,7 +37,7 @@ class AuthController extends Controller
         ]);
 
         try {
-            DB::transaction(function () use ($data, &$user, $verificationService) {
+            DB::transaction(function () use ($data, &$user, &$company, $verificationService) {
                 $user = User::create([
                     'name' => $data['name'],
                     'email' => $data['email'],
@@ -94,6 +96,8 @@ class AuthController extends Controller
 
             if ($data['role'] === 'student') {
                 NotificationService::studentRegistered($user);
+            } elseif ($company && $company->approval_status === 'Pending') {
+                NotificationService::companyNeedsReview($company);
             }
 
             return response()->json([
@@ -301,9 +305,13 @@ class AuthController extends Controller
 
         } elseif (strtolower($user->role) === 'company') {
 
-            $verificationService->verifyCompany(
+            $status = $verificationService->verifyCompany(
                 $user->company
             );
+
+            if ($status === 'Pending' && $user->company) {
+                NotificationService::companyNeedsReview($user->company);
+            }
         }
 
         return response()->json([

@@ -10,11 +10,13 @@ class AdminActivityLogService
         string $action,
         string $targetType,
         ?int $targetId = null,
-        ?string $description = null
+        ?string $description = null,
+        string $actorType = 'System',
+        ?int $actorId = null
     ): AdminActivityLog {
         return AdminActivityLog::create([
-            'actor_type' => 'System',
-            'actor_id' => null,
+            'actor_type' => $actorType,
+            'actor_id' => $actorId,
             'action' => $action,
             'target_type' => $targetType,
             'target_id' => $targetId,
@@ -24,13 +26,16 @@ class AdminActivityLogService
 
     public static function companyApproved(
         int $companyId,
-        string $companyName
+        string $companyName,
+        ?int $adminId = null
     ): AdminActivityLog {
         return self::log(
             'Company Approved',
             'Company',
             $companyId,
-            "{$companyName} was approved."
+            "{$companyName} was approved.",
+            $adminId ? 'Admin' : 'System',
+            $adminId
         );
     }
 
@@ -48,37 +53,117 @@ class AdminActivityLogService
 
     public static function companySuspended(
         int $companyId,
-        string $companyName
+        string $companyName,
+        ?int $adminId = null
     ): AdminActivityLog {
         return self::log(
             'Company Suspended',
             'Company',
             $companyId,
-            "{$companyName} was automatically suspended."
+            $adminId
+                ? "{$companyName} was suspended by admin."
+                : "{$companyName} was automatically suspended.",
+            $adminId ? 'Admin' : 'System',
+            $adminId
         );
     }
 
-    public static function jobPublished(
+    public static function jobAutoPublished(
         int $jobId,
-        string $jobTitle
+        string $jobTitle,
+        int $qualityScore
     ): AdminActivityLog {
         return self::log(
-            'Job Published',
+            'Job Auto Published',
             'Job',
             $jobId,
-            "{$jobTitle} was published."
+            "{$jobTitle} was automatically published with quality score {$qualityScore}."
         );
     }
 
     public static function jobSentForReview(
         int $jobId,
-        string $jobTitle
+        string $jobTitle,
+        int $qualityScore,
+        array $issues = []
     ): AdminActivityLog {
+        $issueSummary = empty($issues)
+            ? 'No issue summary available.'
+            : collect($issues)
+                ->pluck('message')
+                ->filter()
+                ->take(3)
+                ->implode(' ');
+
         return self::log(
             'Job Sent For Review',
             'Job',
             $jobId,
-            "{$jobTitle} was sent for admin review."
+            "{$jobTitle} was sent for admin review with quality score {$qualityScore}. {$issueSummary}"
+        );
+    }
+
+    public static function jobApprovedByAdmin(
+        int $jobId,
+        string $jobTitle,
+        ?int $adminId = null,
+        ?string $note = null
+    ): AdminActivityLog {
+        return self::log(
+            'Job Approved',
+            'Job',
+            $jobId,
+            trim("{$jobTitle} was approved by admin. " . ($note ? "Note: {$note}" : '')),
+            'Admin',
+            $adminId
+        );
+    }
+
+    public static function jobRejectedByAdmin(
+        int $jobId,
+        string $jobTitle,
+        ?int $adminId = null,
+        ?string $note = null
+    ): AdminActivityLog {
+        return self::log(
+            'Job Rejected',
+            'Job',
+            $jobId,
+            trim("{$jobTitle} was rejected by admin. " . ($note ? "Note: {$note}" : '')),
+            'Admin',
+            $adminId
+        );
+    }
+
+    public static function jobChangesRequestedByAdmin(
+        int $jobId,
+        string $jobTitle,
+        ?int $adminId = null,
+        ?string $note = null
+    ): AdminActivityLog {
+        return self::log(
+            'Job Changes Requested',
+            'Job',
+            $jobId,
+            trim("Changes were requested for {$jobTitle}. " . ($note ? "Note: {$note}" : '')),
+            'Admin',
+            $adminId
+        );
+    }
+
+    public static function jobSuspendedByAdmin(
+        int $jobId,
+        string $jobTitle,
+        ?int $adminId = null,
+        ?string $note = null
+    ): AdminActivityLog {
+        return self::log(
+            'Job Suspended',
+            'Job',
+            $jobId,
+            trim("{$jobTitle} was suspended by admin. " . ($note ? "Note: {$note}" : '')),
+            'Admin',
+            $adminId
         );
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Student;
+use App\Services\AdminActivityLogService;
 use App\Services\AutomaticVerificationService;
 use Illuminate\Http\Request;
 
@@ -11,6 +12,8 @@ class AdminStudentController extends Controller
 {
     public function index(Request $request, AutomaticVerificationService $verificationService)
     {
+        $this->authorizeAdmin($request);
+
         $query = Student::with('user');
 
         // Search
@@ -76,9 +79,12 @@ class AdminStudentController extends Controller
 
 
     public function show(
+        Request $request,
         Student $student,
         AutomaticVerificationService $verificationService
     ) {
+        $this->authorizeAdmin($request);
+
         $student->load('user');
 
         $score = $verificationService
@@ -122,8 +128,10 @@ class AdminStudentController extends Controller
         ]);
     }
 
-    public function approve(Student $student)
+    public function approve(Request $request, Student $student)
     {
+        $this->authorizeAdmin($request);
+
         $student->update([
             'verification_status' => 'Approved',
         ]);
@@ -133,6 +141,15 @@ class AdminStudentController extends Controller
                 'status' => 'Active',
             ]);
         }
+
+        AdminActivityLogService::log(
+            'Student Approved',
+            'Student',
+            $student->id,
+            "{$student->user?->name} was approved by admin.",
+            'Admin',
+            $request->user()?->id
+        );
 
         return response()->json([
             'message' => 'Student approved successfully.',
@@ -141,11 +158,22 @@ class AdminStudentController extends Controller
     }
 
 
-    public function reject(Student $student)
+    public function reject(Request $request, Student $student)
     {
+        $this->authorizeAdmin($request);
+
         $student->update([
             'verification_status' => 'Rejected',
         ]);
+
+        AdminActivityLogService::log(
+            'Student Rejected',
+            'Student',
+            $student->id,
+            "{$student->user?->name} was rejected by admin.",
+            'Admin',
+            $request->user()?->id
+        );
 
         return response()->json([
             'message' => 'Student rejected successfully.',
@@ -154,13 +182,24 @@ class AdminStudentController extends Controller
     }
 
 
-    public function suspend(Student $student)
+    public function suspend(Request $request, Student $student)
     {
+        $this->authorizeAdmin($request);
+
         if ($student->user) {
             $student->user->update([
                 'status' => 'Suspended',
             ]);
         }
+
+        AdminActivityLogService::log(
+            'Student Suspended',
+            'Student',
+            $student->id,
+            "{$student->user?->name} was suspended by admin.",
+            'Admin',
+            $request->user()?->id
+        );
 
         return response()->json([
             'message' => 'Student suspended successfully.',
@@ -169,8 +208,10 @@ class AdminStudentController extends Controller
     }
 
 
-    public function restore(Student $student)
+    public function restore(Request $request, Student $student)
     {
+        $this->authorizeAdmin($request);
+
         if ($student->user) {
             $student->user->update([
                 'status' => 'Active',
@@ -181,14 +222,25 @@ class AdminStudentController extends Controller
             'verification_status' => 'Approved',
         ]);
 
+        AdminActivityLogService::log(
+            'Student Restored',
+            'Student',
+            $student->id,
+            "{$student->user?->name} was restored by admin.",
+            'Admin',
+            $request->user()?->id
+        );
+
         return response()->json([
             'message' => 'Student restored successfully.',
             'student' => $student->fresh()->load('user'),
         ]);
     }
 
-    public function activate($id)
+    public function activate(Request $request, $id)
     {
+        $this->authorizeAdmin($request);
+
         $student = \App\Models\Student::find($id);
 
         if (!$student) {
@@ -208,9 +260,23 @@ class AdminStudentController extends Controller
         $student->user->status = 'Active';
         $student->user->save();
 
+        AdminActivityLogService::log(
+            'Student Activated',
+            'Student',
+            $student->id,
+            "{$student->user?->name} was activated by admin.",
+            'Admin',
+            $request->user()?->id
+        );
+
         return response()->json([
             'message' => 'Student activated successfully.',
             'student' => $student->load('user'),
         ]);
+    }
+
+    private function authorizeAdmin(Request $request): void
+    {
+        abort_if(strtolower($request->user()?->role ?? '') !== 'admin', 403, 'Unauthorized. Admin access required.');
     }
 }

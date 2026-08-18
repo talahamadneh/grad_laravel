@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\LandingController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\AbuseReportController;
 
 use App\Http\Controllers\StudentDashboardController;
 use App\Http\Controllers\StudentJobController;
@@ -24,8 +25,14 @@ use App\Http\Controllers\InterviewController;
 use App\Http\Controllers\InterviewFeedbackController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Admin\AdminDashboardController;
+use App\Http\Controllers\Admin\AdminAnalyticsController;
+use App\Http\Controllers\Admin\AdminApplicationController;
 use App\Http\Controllers\Admin\AdminCompanyController;
+use App\Http\Controllers\Admin\AdminJobModerationController;
+use App\Http\Controllers\Admin\AdminReportController;
+use App\Http\Controllers\Admin\AdminSkillController;
 use App\Http\Controllers\Admin\AdminStudentController;
+use App\Http\Controllers\Admin\AdminSystemLogController;
 
 Route::get('/landing/stats', [LandingController::class, 'stats']);
 
@@ -86,6 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/messages/{user}', [MessageController::class, 'destroyConversation']);
     Route::post('/messages/{user}/block', [MessageController::class, 'blockUser']);
     Route::post('/messages/{user}/report', [MessageController::class, 'reportUser']);
+    Route::post('/reports/abuse', [AbuseReportController::class, 'store']);
 
 
 
@@ -189,6 +197,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Admin dashboard route
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
+    Route::get('/admin/system-logs', [AdminSystemLogController::class, 'index']);
+    Route::get('/admin/analytics', [AdminAnalyticsController::class, 'index']);
+    Route::get('/admin/applications', [AdminApplicationController::class, 'index']);
+
+    // Admin reports routes
+    Route::get('/admin/reports/platform', [AdminReportController::class, 'platform']);
+    Route::get('/admin/reports/abuse', [AdminReportController::class, 'abuse']);
+    Route::get('/admin/reports/abuse/{report}', [AdminReportController::class, 'showAbuse']);
+    Route::patch('/admin/reports/abuse/{report}/resolve', [AdminReportController::class, 'resolveAbuse']);
+    Route::patch('/admin/reports/abuse/{report}/dismiss', [AdminReportController::class, 'dismissAbuse']);
 
     // Admin company routes
     Route::get('/admin/companies', [AdminCompanyController::class, 'index']);
@@ -197,6 +215,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/admin/companies/{id}/approve', [AdminCompanyController::class, 'approve']);
     Route::patch('/admin/companies/{id}/reject', [AdminCompanyController::class, 'reject']);
     Route::patch('/admin/companies/{id}/suspend', [AdminCompanyController::class, 'suspend']);
+
+    // Admin job moderation routes
+    Route::get('/admin/jobs/moderation', [AdminJobModerationController::class, 'index']);
+    Route::get('/admin/jobs/{job}/moderation', [AdminJobModerationController::class, 'show']);
+    Route::patch('/admin/jobs/{job}/approve', [AdminJobModerationController::class, 'approve']);
+    Route::patch('/admin/jobs/{job}/reject', [AdminJobModerationController::class, 'reject']);
+    Route::patch('/admin/jobs/{job}/request-changes', [AdminJobModerationController::class, 'requestChanges']);
+    Route::patch('/admin/jobs/{job}/suspend', [AdminJobModerationController::class, 'suspend']);
+
+    // Admin skills routes
+    Route::get('/admin/skills', [AdminSkillController::class, 'index']);
+    Route::post('/admin/skills', [AdminSkillController::class, 'store']);
+    Route::get('/admin/skills/{skill}', [AdminSkillController::class, 'show']);
+    Route::put('/admin/skills/{skill}', [AdminSkillController::class, 'update']);
+    Route::patch('/admin/skills/{skill}', [AdminSkillController::class, 'update']);
+    Route::delete('/admin/skills/{skill}', [AdminSkillController::class, 'destroy']);
 
     // Admin student routes
     Route::get('/admin/students', [AdminStudentController::class, 'index']);
@@ -208,4 +242,3 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/admin/students/{student}/activate', [AdminStudentController::class, 'activate']);
 
  });
-

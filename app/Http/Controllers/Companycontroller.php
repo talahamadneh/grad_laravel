@@ -11,6 +11,7 @@ use App\Models\ApplicationStatusHistory;
 use App\Models\Interview;
 use Illuminate\Support\Facades\Validator;
 //use App\Services\GeminiService;
+use App\Services\AutomaticJobValidationService;
 use App\Services\JobMatchingService;
 use App\Services\NotificationService;
 use Carbon\Carbon;
@@ -43,6 +44,8 @@ class CompanyController extends Controller
                     'mode' => $job->work_mode,
                     'location' => $job->location,
                     'status' => $job->status,
+                    'quality_score' => $job->quality_score,
+                    'moderation_recommendation' => $job->moderation_recommendation,
                     'applicants' => $job->applications_count,
                     'company' => $company->company_name,
                     'views' => 0,
@@ -147,7 +150,7 @@ class CompanyController extends Controller
         ];
     }
 
-    public function storeJob(Request $request)
+    public function storeJob(Request $request, AutomaticJobValidationService $validationService)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -166,6 +169,7 @@ class CompanyController extends Controller
             'location' => 'nullable|string|max:255',
             'salary' => 'nullable|numeric',
             'description' => 'nullable|string',
+            'requirements' => 'nullable|string',
             'skills' => 'nullable|array',
             'skills.*' => 'string|max:255',
             'benefits' => 'nullable|array',
@@ -192,10 +196,11 @@ class CompanyController extends Controller
             'location' => $validated['location'] ?? null,
             'salary' => $validated['salary'] ?? null,
             'description' => $validated['description'] ?? null,
+            'requirements' => $validated['requirements'] ?? null,
             'benefits' => $validated['benefits'] ?? [],
             'deadline' => $validated['deadline'] ?? null,
             'vacancies' => $validated['vacancies'] ?? 1,
-            'status' => 'Open',
+            'status' => 'Pending Review',
         ]);
 
         if (!empty($validated['skills'])) {
@@ -212,9 +217,16 @@ class CompanyController extends Controller
             $job->skills()->sync($skillIds);
         }
 
+        $validation = $validationService->apply($job->fresh('skills'));
+
         return response()->json([
-            'message' => 'Job posted successfully',
-            'job' => $job->load('skills'),
+            'message' => $validation['status'] === 'Open'
+                ? 'Job passed automatic validation and was published successfully.'
+                : 'Job was created and sent to admin moderation.',
+            'quality_score' => $validation['quality_score'],
+            'moderation_issues' => $validation['issues'],
+            'moderation_recommendation' => $validation['recommendation'],
+            'job' => $job->fresh('skills'),
         ], 201);
     }
 
@@ -865,6 +877,7 @@ Provide a short professional hiring summary.
             'title' => $job->title,
             'department' => $job->department,
             'description' => $job->description,
+            'requirements' => $job->requirements,
             'employment_type' => $job->employment_type,
             'work_mode' => $job->work_mode,
             'location' => $job->location,
@@ -873,6 +886,10 @@ Provide a short professional hiring summary.
             'vacancies' => $job->vacancies,
             'required_major' => $job->required_major,
             'status' => $job->status,
+            'quality_score' => $job->quality_score,
+            'moderation_issues' => $job->moderation_issues ?? [],
+            'moderation_recommendation' => $job->moderation_recommendation,
+            'moderation_note' => $job->moderation_note,
             'created_at' => $job->created_at,
 
             'skills' => $job->skills
@@ -952,13 +969,17 @@ Provide a short professional hiring summary.
             'vacancies' => $job->vacancies,
             'required_major' => $job->required_major,
             'status' => $job->status,
+            'quality_score' => $job->quality_score,
+            'moderation_issues' => $job->moderation_issues ?? [],
+            'moderation_recommendation' => $job->moderation_recommendation,
+            'moderation_note' => $job->moderation_note,
             'skills' => $job->skills
                 ->pluck('name')
                 ->values(),
         ]);
     }
 
-    public function updateJob(Request $request, $id)
+    public function updateJob(Request $request, $id, AutomaticJobValidationService $validationService)
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -987,6 +1008,7 @@ Provide a short professional hiring summary.
             'location' => 'nullable|string|max:255',
             'salary' => 'nullable|numeric',
             'description' => 'nullable|string',
+            'requirements' => 'nullable|string',
             'skills' => 'nullable|array',
             'skills.*' => 'string|max:255',
             'benefits' => 'nullable|array',
@@ -994,7 +1016,7 @@ Provide a short professional hiring summary.
             'deadline' => 'nullable|date',
             'vacancies' => 'nullable|integer|min:1',
             'required_major' => 'nullable|string|max:255',
-            'status' => 'nullable|in:Open,Closed,Draft',
+            'status' => 'nullable|in:Open,Closed,Draft,Pending Review,Rejected,Changes Requested,Suspended',
         ]);
 
         if ($validator->fails()) {
@@ -1005,6 +1027,9 @@ Provide a short professional hiring summary.
 
         $validated = $validator->validated();
 
+        $requestedStatus = $validated['status'] ?? null;
+        $shouldSkipValidation = in_array($requestedStatus, ['Closed', 'Draft'], true);
+
         $job->update([
             'title' => $validated['title'],
             'department' => $validated['department'] ?? null,
@@ -1014,11 +1039,12 @@ Provide a short professional hiring summary.
             'location' => $validated['location'] ?? null,
             'salary' => $validated['salary'] ?? null,
             'description' => $validated['description'] ?? null,
+            'requirements' => $validated['requirements'] ?? null,
             'benefits' => $validated['benefits'] ?? [],
             'deadline' => $validated['deadline'] ?? null,
             'vacancies' => $validated['vacancies'] ?? 1,
             'required_major' => $validated['required_major'] ?? null,
-            'status' => $validated['status'] ?? $job->status,
+            'status' => $shouldSkipValidation ? $requestedStatus : 'Pending Review',
         ]);
 
         if (isset($validated['skills'])) {
@@ -1035,9 +1061,23 @@ Provide a short professional hiring summary.
             $job->skills()->sync($skillIds);
         }
 
+        if ($shouldSkipValidation) {
+            return response()->json([
+                'message' => 'Job updated successfully',
+                'job' => $job->fresh('skills')
+            ]);
+        }
+
+        $validation = $validationService->apply($job->fresh('skills'));
+
         return response()->json([
-            'message' => 'Job updated successfully',
-            'job' => $job->load('skills')
+            'message' => $validation['status'] === 'Open'
+                ? 'Job updated, passed automatic validation, and was published successfully.'
+                : 'Job updated and sent to admin moderation.',
+            'quality_score' => $validation['quality_score'],
+            'moderation_issues' => $validation['issues'],
+            'moderation_recommendation' => $validation['recommendation'],
+            'job' => $job->fresh('skills')
         ]);
     }
 
