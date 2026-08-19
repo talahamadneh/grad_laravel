@@ -55,19 +55,27 @@ class AutomaticVerificationService
         $result = $this->calculateStudentVerificationScore($student);
 
         // Automatic approval
-        if ($result['verification_score'] >= 80) {
-            $student->update([
-                'verification_status' => 'Approved',
-            ]);
+       if ($result['verification_score'] >= 80) {
+    $student->update([
+        'verification_status' => 'Approved',
+    ]);
 
-            return 'Approved';
-        }
+    return 'Approved';
+}
 
-        $student->update([
-            'verification_status' => 'Pending',
-        ]);
+if ($result['verification_score'] >= 50) {
+    $student->update([
+        'verification_status' => 'Pending',
+    ]);
 
-        return 'Pending';
+    return 'Pending';
+}
+
+$student->update([
+    'verification_status' => 'Rejected',
+]);
+
+return 'Rejected';
     }
 
     public function calculateStudentVerificationScore(Student $student): array

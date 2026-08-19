@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Resume extends Model
 {
     protected $table = 'resumes';
+
     protected $primaryKey = 'id';
 
     protected $fillable = [
@@ -21,25 +22,27 @@ class Resume extends Model
         'skills',
         'projects',
         'file_path',
+        'file_name',
         'languages',
         'certificates',
         'is_public'
     ];
 
     protected $casts = [
-    'experience' => 'array',
-    'education' => 'array',
-    'skills' => 'array',
-    'projects' => 'array',
-    'languages' => 'array',
-    'certificates' => 'array',
-    'is_public' => 'boolean'
-];
+        'experience' => 'array',
+        'education' => 'array',
+        'skills' => 'array',
+        'projects' => 'array',
+        'languages' => 'array',
+        'certificates' => 'array',
+        'is_public' => 'boolean'
+    ];
 
     public function student()
     {
         return $this->belongsTo(Student::class, 'student_id');
     }
+
     public function analysis()
     {
         return $this->hasOne(ResumeAnalysis::class, 'resume_id');
@@ -49,5 +52,4 @@ class Resume extends Model
     {
         return $this->hasMany(Application::class);
     }
-
 }

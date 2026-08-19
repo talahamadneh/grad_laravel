@@ -16,7 +16,6 @@ class AdminStudentController extends Controller
 
         $query = Student::with('user');
 
-        // Search
         if ($request->filled('search')) {
             $search = $request->search;
 
@@ -30,9 +29,14 @@ class AdminStudentController extends Controller
             });
         }
 
-        // Filter by verification status
         if ($request->filled('status')) {
-            $query->where('verification_status', $request->status);
+            if ($request->status === 'Suspended') {
+                $query->whereHas('user', function ($userQuery) {
+                    $userQuery->where('status', 'Suspended');
+                });
+            } else {
+                $query->where('verification_status', $request->status);
+            }
         }
 
         $students = $query
@@ -40,33 +44,27 @@ class AdminStudentController extends Controller
             ->get();
 
         $data = $students->map(function ($student) use ($verificationService) {
-
             $score = $verificationService
                 ->calculateStudentVerificationScore($student);
 
             return [
                 'id' => $student->id,
                 'user_id' => $student->user_id,
-
                 'name' => $student->user?->name,
                 'email' => $student->user?->email,
-
+                'avatar' => $student->avatar,
                 'university' => $student->university,
                 'major' => $student->major,
                 'graduation_year' => $student->graduation_year,
                 'phone' => $student->phone,
-
                 'profile_completion' => $student->profile_completion,
-
                 'verification_status' => $student->verification_status,
-
+                'account_status' => $student->user?->status,
                 'verification_score' => $score['verification_score'],
                 'recommendation' => $score['recommendation'],
-
                 'email_verified' => !is_null(
                     $student->user?->email_verified_at
                 ),
-
                 'joined' => $student->created_at?->format('Y-m-d'),
             ];
         });
@@ -76,7 +74,6 @@ class AdminStudentController extends Controller
             'total' => $data->count(),
         ]);
     }
-
 
     public function show(
         Request $request,
@@ -94,35 +91,28 @@ class AdminStudentController extends Controller
             'student' => [
                 'id' => $student->id,
                 'user_id' => $student->user_id,
-
                 'name' => $student->user?->name,
                 'email' => $student->user?->email,
-
+                'avatar' => $student->avatar,
                 'university' => $student->university,
                 'major' => $student->major,
                 'graduation_year' => $student->graduation_year,
                 'gpa' => $student->gpa,
                 'phone' => $student->phone,
-
                 'linkedin' => $student->linkedin,
                 'github' => $student->github,
                 'portfolio' => $student->portfolio,
-
                 'bio' => $student->bio,
                 'headline' => $student->headline,
                 'location' => $student->location,
-
                 'profile_completion' => $student->profile_completion,
-
                 'verification_status' => $student->verification_status,
-
+                'account_status' => $student->user?->status,
                 'verification_score' => $score['verification_score'],
                 'recommendation' => $score['recommendation'],
-
                 'email_verified' => !is_null(
                     $student->user?->email_verified_at
                 ),
-
                 'joined' => $student->created_at?->format('Y-m-d'),
             ],
         ]);
@@ -157,7 +147,6 @@ class AdminStudentController extends Controller
         ]);
     }
 
-
     public function reject(Request $request, Student $student)
     {
         $this->authorizeAdmin($request);
@@ -165,6 +154,12 @@ class AdminStudentController extends Controller
         $student->update([
             'verification_status' => 'Rejected',
         ]);
+
+        if ($student->user) {
+            $student->user->update([
+                'status' => 'Inactive',
+            ]);
+        }
 
         AdminActivityLogService::log(
             'Student Rejected',
@@ -180,7 +175,6 @@ class AdminStudentController extends Controller
             'student' => $student->fresh()->load('user'),
         ]);
     }
-
 
     public function suspend(Request $request, Student $student)
     {
@@ -206,7 +200,6 @@ class AdminStudentController extends Controller
             'student' => $student->fresh()->load('user'),
         ]);
     }
-
 
     public function restore(Request $request, Student $student)
     {
@@ -241,11 +234,11 @@ class AdminStudentController extends Controller
     {
         $this->authorizeAdmin($request);
 
-        $student = \App\Models\Student::find($id);
+        $student = Student::find($id);
 
         if (!$student) {
             return response()->json([
-                'message' => 'Student not found.'
+                'message' => 'Student not found.',
             ], 404);
         }
 
@@ -253,12 +246,13 @@ class AdminStudentController extends Controller
 
         if (!$student->user) {
             return response()->json([
-                'message' => 'Student user account not found.'
+                'message' => 'Student user account not found.',
             ], 404);
         }
 
-        $student->user->status = 'Active';
-        $student->user->save();
+        $student->user->update([
+            'status' => 'Active',
+        ]);
 
         AdminActivityLogService::log(
             'Student Activated',
@@ -277,6 +271,10 @@ class AdminStudentController extends Controller
 
     private function authorizeAdmin(Request $request): void
     {
-        abort_if(strtolower($request->user()?->role ?? '') !== 'admin', 403, 'Unauthorized. Admin access required.');
+        abort_if(
+            strtolower($request->user()?->role ?? '') !== 'admin',
+            403,
+            'Unauthorized. Admin access required.'
+        );
     }
 }

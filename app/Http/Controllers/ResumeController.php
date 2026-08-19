@@ -46,20 +46,18 @@ class ResumeController extends Controller
                 'full_name' => $request->user()->name,
                 'professional_title' => $student->headline,
                 'summary' => $student->bio,
-
                 ...$profileData,
-
                 'skills' => $student->skills->pluck('name')->toArray(),
                 'experience' => $student->experience,
                 'education' => $student->education,
                 'projects' => [],
                 'languages' => [],
                 'certificates' => [],
-
                 'template' => 'executive',
                 'title' => 'My Resume',
                 'file_path' => null,
                 'file_url' => null,
+                'file_name' => null,
                 'is_public' => false,
             ]);
         }
@@ -67,17 +65,18 @@ class ResumeController extends Controller
         return response()->json([
             ...$resume->toArray(),
             ...$profileData,
-
             'skills' => $resume->skills ?? $student->skills->pluck('name')->toArray(),
             'experience' => $resume->experience ?? $student->experience,
             'education' => $resume->education ?? $student->education,
             'projects' => $resume->projects ?? [],
             'languages' => $resume->languages ?? [],
             'certificates' => $resume->certificates ?? [],
-
             'file_path' => $resume->file_path,
             'file_url' => $resume->file_path
-                ? Storage::url($resume->file_path)
+                ? Storage::disk('public')->url($resume->file_path)
+                : null,
+            'file_name' => $resume->file_path
+                ? basename($resume->file_path)
                 : null,
         ]);
     }
@@ -176,7 +175,20 @@ class ResumeController extends Controller
             ], 422);
         }
 
-        $resume->update($request->all());
+        $resume->update($request->only([
+            'title',
+            'template',
+            'full_name',
+            'professional_title',
+            'summary',
+            'experience',
+            'education',
+            'skills',
+            'projects',
+            'languages',
+            'certificates',
+            'is_public',
+        ]));
 
         return response()->json([
             'message' => 'Resume updated successfully',
@@ -202,6 +214,13 @@ class ResumeController extends Controller
             return response()->json([
                 'message' => 'Resume not found'
             ], 404);
+        }
+
+        if (
+            $resume->file_path &&
+            Storage::disk('public')->exists($resume->file_path)
+        ) {
+            Storage::disk('public')->delete($resume->file_path);
         }
 
         $resume->delete();
@@ -248,29 +267,29 @@ PROMPT;
             $response = Http::withToken(config('services.groq.keys.0'))
                 ->acceptJson()
                 ->timeout(60)
-                ->post('https://api.groq.com/openai/v1/chat/completions', [
-                    'model' => config(
-                        'services.groq.model',
-                        'llama-3.3-70b-versatile'
-                    ),
-
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => 'You are a professional resume writing assistant. Improve resume summaries while preserving the candidate\'s original facts. Never invent information.'
+                ->post(
+                    'https://api.groq.com/openai/v1/chat/completions',
+                    [
+                        'model' => config(
+                            'services.groq.model',
+                            'llama-3.3-70b-versatile'
+                        ),
+                        'messages' => [
+                            [
+                                'role' => 'system',
+                                'content' => 'You are a professional resume writing assistant. Improve resume summaries while preserving the candidate\'s original facts. Never invent information.'
+                            ],
+                            [
+                                'role' => 'user',
+                                'content' => $prompt
+                            ]
                         ],
-                        [
-                            'role' => 'user',
-                            'content' => $prompt
-                        ]
-                    ],
-
-                    'temperature' => 0.4,
-                    'stream' => false,
-                ]);
+                        'temperature' => 0.4,
+                        'stream' => false,
+                    ]
+                );
 
             if (!$response->successful()) {
-
                 \Log::error('Groq AI Error', [
                     'status' => $response->status(),
                     'response' => $response->json(),
@@ -288,7 +307,6 @@ PROMPT;
             );
 
             if (!$improvedText) {
-
                 \Log::error('Groq returned empty response', [
                     'response' => $response->json(),
                 ]);
@@ -299,7 +317,6 @@ PROMPT;
             }
 
             $improvedText = trim($improvedText);
-
             $improvedText = trim($improvedText, "\"'");
 
             return response()->json([
@@ -307,7 +324,6 @@ PROMPT;
             ]);
 
         } catch (\Throwable $e) {
-
             \Log::error('Groq AI Improve Exception', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -387,9 +403,30 @@ PROMPT;
         try {
             $file = $request->file('file');
             $extension = strtolower($file->getClientOriginalExtension());
+            $originalName = $file->getClientOriginalName();
 
-            $filePath = $file->store(
-                'resumes',
+            $safeFileName = preg_replace(
+                '/[^\pL\pN\.\-_ ]/u',
+                '',
+                $originalName
+            );
+
+            $safeFileName = trim($safeFileName);
+
+            if (!$safeFileName) {
+                $safeFileName = 'resume.' . $extension;
+            }
+
+            $directory = 'resumes/' . $student->id;
+            $filePath = $directory . '/' . $safeFileName;
+
+            if (Storage::disk('public')->exists($filePath)) {
+                Storage::disk('public')->delete($filePath);
+            }
+
+            $file->storeAs(
+                $directory,
+                $safeFileName,
                 'public'
             );
 
@@ -402,7 +439,9 @@ PROMPT;
 
                 $text = trim($pdf->getText());
             } else {
-                $text = $this->extractDocxText($file->getRealPath());
+                $text = $this->extractDocxText(
+                    $file->getRealPath()
+                );
             }
 
             if (!$text) {
@@ -498,32 +537,32 @@ PROMPT;
             $response = Http::withToken(
                 config('services.groq.keys.0')
             )
-            ->acceptJson()
-            ->timeout(90)
-            ->post(
-                'https://api.groq.com/openai/v1/chat/completions',
-                [
-                    'model' => config(
-                        'services.groq.model',
-                        'llama-3.3-70b-versatile'
-                    ),
-
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => 'You extract resume information into valid JSON. Never invent information.'
+                ->acceptJson()
+                ->timeout(90)
+                ->post(
+                    'https://api.groq.com/openai/v1/chat/completions',
+                    [
+                        'model' => config(
+                            'services.groq.model',
+                            'llama-3.3-70b-versatile'
+                        ),
+                        'messages' => [
+                            [
+                                'role' => 'system',
+                                'content' => 'You extract resume information into valid JSON. Never invent information.'
+                            ],
+                            [
+                                'role' => 'user',
+                                'content' => $prompt
+                            ]
                         ],
-                        [
-                            'role' => 'user',
-                            'content' => $prompt
-                        ]
-                    ],
-
-                    'temperature' => 0.1,
-                    'stream' => false,
-                    'response_format' => ['type' => 'json_object'],
-                ]
-            );
+                        'temperature' => 0.1,
+                        'stream' => false,
+                        'response_format' => [
+                            'type' => 'json_object'
+                        ],
+                    ]
+                );
 
             if (!$response->successful()) {
                 Storage::disk('public')->delete($filePath);
@@ -625,7 +664,6 @@ PROMPT;
             ];
 
             if ($resume) {
-
                 $oldFilePath = $resume->file_path;
 
                 $resume->update($resumeData);
@@ -637,9 +675,7 @@ PROMPT;
                 ) {
                     Storage::disk('public')->delete($oldFilePath);
                 }
-
             } else {
-
                 $resume = Resume::create($resumeData);
             }
 
@@ -665,12 +701,20 @@ PROMPT;
                 $studentUpdates['portfolio'] = $parsedData['portfolio'];
             }
 
-            if (empty($student->headline) && !empty($parsedData['professional_title'])) {
-                $studentUpdates['headline'] = $parsedData['professional_title'];
+            if (
+                empty($student->headline) &&
+                !empty($parsedData['professional_title'])
+            ) {
+                $studentUpdates['headline'] =
+                    $parsedData['professional_title'];
             }
 
-            if (empty($student->bio) && !empty($parsedData['summary'])) {
-                $studentUpdates['bio'] = $parsedData['summary'];
+            if (
+                empty($student->bio) &&
+                !empty($parsedData['summary'])
+            ) {
+                $studentUpdates['bio'] =
+                    $parsedData['summary'];
             }
 
             if (!empty($studentUpdates)) {
@@ -682,13 +726,13 @@ PROMPT;
                 'message' => 'CV uploaded and analyzed successfully',
                 'resume' => $resume,
                 'file_path' => $filePath,
+                'file_name' => $safeFileName,
                 'file_url' => Storage::disk('public')->url(
                     $filePath
                 ),
             ]);
 
         } catch (\Throwable $e) {
-
             \Log::error('Resume Upload Error', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
