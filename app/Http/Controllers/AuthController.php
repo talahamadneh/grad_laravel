@@ -5,15 +5,16 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Student;
 use App\Models\Company;
+use App\Models\PasswordResetCode;
 use App\Services\NotificationService;
 use App\Services\AutomaticVerificationService;
 use App\Models\EmailVerification;
 use App\Mail\EmailVerificationCode;
+use App\Mail\PasswordResetCodeMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Password;
 use Exception;
 
 class AuthController extends Controller
@@ -193,19 +194,125 @@ class AuthController extends Controller
             'email' => 'required|email',
         ]);
 
-        $status = Password::sendResetLink(
-            $request->only('email')
-        );
+        $user = User::where('email', $request->email)->first();
 
-        if ($status === Password::RESET_LINK_SENT) {
+        if (!$user) {
             return response()->json([
-                'message' => __($status),
-            ], 200);
+                'message' => 'If this email exists, a password reset code has been sent.',
+            ]);
         }
 
+        $latestCode = PasswordResetCode::where('user_id', $user->id)
+            ->whereNull('used_at')
+            ->latest()
+            ->first();
+
+        if (
+            $latestCode &&
+            $latestCode->locked_until &&
+            $latestCode->locked_until->isFuture()
+        ) {
+            return response()->json([
+                'message' => 'Too many incorrect attempts. Please try again later.',
+                'locked_until' => $latestCode->locked_until,
+            ], 429);
+        }
+
+        PasswordResetCode::where('user_id', $user->id)
+            ->whereNull('used_at')
+            ->update(['used_at' => now()]);
+
+        $code = random_int(100000, 999999);
+
+        PasswordResetCode::create([
+            'user_id' => $user->id,
+            'code' => $code,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        Mail::to($user->email)->send(
+            new PasswordResetCodeMail($code)
+        );
+
         return response()->json([
-            'message' => __($status),
-        ], 400);
+            'message' => 'If this email exists, a password reset code has been sent.',
+        ]);
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $data = $request->validate([
+            'email' => 'required|email|exists:users,email',
+            'code' => 'required|digits:6',
+            'password' => 'required|min:8|confirmed',
+            'password_confirmation' => 'required',
+        ]);
+
+        $user = User::where('email', $data['email'])->first();
+
+        $resetCode = PasswordResetCode::where('user_id', $user->id)
+            ->whereNull('used_at')
+            ->latest()
+            ->first();
+
+        if (!$resetCode) {
+            return response()->json([
+                'message' => 'No active password reset code found.',
+            ], 422);
+        }
+
+        if (
+            $resetCode->locked_until &&
+            $resetCode->locked_until->isFuture()
+        ) {
+            return response()->json([
+                'message' => 'Too many incorrect attempts. Please try again later.',
+                'locked_until' => $resetCode->locked_until,
+            ], 429);
+        }
+
+        if ($resetCode->expires_at->isPast()) {
+            return response()->json([
+                'message' => 'Password reset code has expired.',
+            ], 422);
+        }
+
+        if ((string) $resetCode->code !== (string) $data['code']) {
+            $resetCode->increment('attempts');
+            $resetCode->refresh();
+
+            if ($resetCode->attempts >= 3) {
+                $resetCode->update([
+                    'locked_until' => now()->addMinutes(10),
+                ]);
+
+                return response()->json([
+                    'message' => 'Too many incorrect attempts. Password reset is temporarily locked for 10 minutes.',
+                    'locked_until' => $resetCode->locked_until,
+                ], 429);
+            }
+
+            return response()->json([
+                'message' => 'Invalid password reset code.',
+                'attempts_remaining' => 3 - $resetCode->attempts,
+            ], 422);
+        }
+
+        DB::transaction(function () use ($user, $resetCode, $data) {
+            $user->update([
+                'password' => Hash::make($data['password']),
+            ]);
+
+            $resetCode->update([
+                'used_at' => now(),
+            ]);
+
+            $user->tokens()->delete();
+        });
+
+        return response()->json([
+            'message' => 'Password reset successfully. Please login with your new password.',
+        ]);
     }
 
 

@@ -42,6 +42,7 @@ Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/resend-verification', [AuthController::class, 'resendVerification']);
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
