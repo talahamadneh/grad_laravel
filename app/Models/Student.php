@@ -13,6 +13,7 @@ use App\Models\Resume;
 use App\Models\Application;
 use App\Models\JobPost;
 use App\Models\AIJobMatching;
+use App\Models\InterviewQuizAttempt;
 
 class Student extends Model
 {
@@ -113,6 +114,11 @@ class Student extends Model
     public function aiMatches()
     {
         return $this->hasMany(AIJobMatching::class, 'student_id');
+    }
+
+    public function interviewQuizAttempts()
+    {
+        return $this->hasMany(InterviewQuizAttempt::class, 'student_id');
     }
 
 

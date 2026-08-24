@@ -4,14 +4,18 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Services\GroqService;
+use App\Services\LocalCVAnalyzerService;
+use App\Services\InterviewQuestionGenerationService;
+use App\Services\InterviewQuizAttemptService;
+use App\Models\InterviewQuizAttempt;
 use App\Models\Resume;
-use App\Models\ResumeAnalysis;
+use App\Models\SavedJob;
 use Illuminate\Support\Facades\Auth;
 use App\Services\JobMatchingService;
 
 class AIAssistantController extends Controller
 {
-   public function reviewCV(Request $request, GroqService $groq)
+   public function reviewCV(Request $request, LocalCVAnalyzerService $cvAnalyzer)
     {
         $student = Auth::user()->student;
 
@@ -25,57 +29,13 @@ class AIAssistantController extends Controller
             return response()->json(['message' => 'Please create a resume first'], 422);
         }
 
-        $prompt = "You are an expert career coach and resume reviewer. Review the following resume and provide feedback in this EXACT JSON format (no markdown, no extra text):
-{
-  \"overall_score\": <number 0-100>,
-  \"strengths\": [\"point 1\", \"point 2\", ...],
-  \"weaknesses\": [\"point 1\", \"point 2\", ...],
-  \"suggestions\": [\"specific actionable suggestion 1\", \"suggestion 2\", ...]
-}
-
-Resume Data:
-Full Name: {$resume->full_name}
-Professional Title: {$resume->professional_title}
-Summary: {$resume->summary}
-Skills: " . json_encode($resume->skills) . "
-Experience: " . json_encode($resume->experience) . "
-Education: " . json_encode($resume->education) . "
-Do not penalize students heavily for lacking professional experience. Evaluate based on the quality and completeness of a student resume rather than years of work experience.
-"
-;
-
         try {
-            $result = $groq->generate($prompt);
-
-            $cleaned = preg_replace('/```json|```/', '', $result);
-            $parsed = json_decode(trim($cleaned), true);
-
-            if (!$parsed) {
-                return response()->json([
-                    'message' => 'Could not parse AI response',
-                    'raw' => $result
-                ], 500);
-            }
-
-            ResumeAnalysis::updateOrCreate(
-                [
-                    'resume_id' => $resume->id
-                ],
-                [
-                    'cv_score' => $parsed['overall_score'] ?? null,
-                    'strengths' => $parsed['strengths'] ?? [],
-                    'weaknesses' => $parsed['weaknesses'] ?? [],
-                    'recommendations' => $parsed['suggestions'] ?? [],
-                ]
-            );
-
-            return response()->json($parsed);
+            return response()->json($cvAnalyzer->reviewAndStore($resume));
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'AI service error',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => $e->getMessage()
+            ], 503);
         }
     }
 
@@ -159,141 +119,125 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
         }
     }
 
-    public function generateInterviewQuestions(Request $request, GroqService $groq)
+    public function generateInterviewQuestions(Request $request, InterviewQuizAttemptService $attemptService)
     {
         $request->validate([
             'job_id' => 'required|integer|exists:job_posts,id'
         ]);
 
         $job = \App\Models\JobPost::with('skills')->findOrFail($request->job_id);
-        $skills = $job->skills->pluck('name')->implode(', ');
+        $student = Auth::user()?->student;
 
-        $prompt = "You are an expert technical interviewer. Generate exactly 20 multiple-choice interview questions for the role of \"{$job->title}\" requiring these skills: {$skills}.
-
-Mix technical and behavioral/situational questions relevant to the role.
-
-Respond ONLY in this EXACT JSON format (no markdown, no extra text):
-{
-  \"questions\": [
-    {
-      \"id\": 1,
-      \"question\": \"<question text>\",
-      \"options\": {
-        \"A\": \"<option text>\",
-        \"B\": \"<option text>\",
-        \"C\": \"<option text>\",
-        \"D\": \"<option text>\"
-      },
-      \"correct_answer\": \"A\"
-    }
-  ]
-}";
+        if (!$student) {
+            return response()->json(['message' => 'Student profile not found'], 404);
+        }
 
         try {
-            $result = $groq->generate($prompt);
-            $cleaned = preg_replace('/```json|```/', '', $result);
-            $parsed = json_decode(trim($cleaned), true);
-
-            if (!$parsed || !isset($parsed['questions'])) {
-                return response()->json([
-                    'message' => 'Could not parse AI response',
-                    'raw' => $result
-                ], 500);
-            }
+            $result = $attemptService->start($job, $student);
 
             return response()->json([
+                'attempt_id' => $result['attempt_id'],
                 'job_id' => $job->id,
                 'job_title' => $job->title,
-                'questions' => $parsed['questions'],
+                'questions' => $result['questions'],
+                'status' => $result['status'],
+                'started_at' => $result['started_at'],
+                'metadata' => $result['metadata'],
             ]);
 
         } catch (\Exception $e) {
+            $status = $e->getMessage() === 'Please save this job before starting the interview quiz.' ? 403 : 503;
+
             return response()->json([
-                'message' => 'AI service error',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => $e->getMessage()
+            ], $status);
         }
     }
 
-    public function submitInterviewAnswers(Request $request, GroqService $groq)
+    public function retakeInterviewQuiz(Request $request, InterviewQuizAttemptService $attemptService)
     {
         $request->validate([
-            'job_title' => 'required|string',
-            'questions' => 'required|array|min:1',
-            'questions.*.id' => 'required',
-            'questions.*.question' => 'required|string',
-            'questions.*.options' => 'required|array',
-            'questions.*.correct_answer' => 'required|string',
+            'job_id' => 'required|integer|exists:job_posts,id'
+        ]);
+
+        $job = \App\Models\JobPost::with('skills')->findOrFail($request->job_id);
+        $student = Auth::user()?->student;
+
+        if (!$student) {
+            return response()->json(['message' => 'Student profile not found'], 404);
+        }
+
+        try {
+            $result = $attemptService->retake($job, $student);
+
+            return response()->json([
+                'attempt_id' => $result['attempt_id'],
+                'job_id' => $job->id,
+                'job_title' => $job->title,
+                'questions' => $result['questions'],
+                'status' => $result['status'],
+                'started_at' => $result['started_at'],
+                'metadata' => $result['metadata'],
+            ]);
+        } catch (\Exception $e) {
+            $status = $e->getMessage() === 'Please save this job before starting the interview quiz.' ? 403 : 503;
+
+            return response()->json([
+                'message' => $e->getMessage()
+            ], $status);
+        }
+    }
+
+    public function submitInterviewAnswers(Request $request, InterviewQuizAttemptService $attemptService)
+    {
+        $request->validate([
+            'attempt_id' => 'required|integer|exists:interview_quiz_attempts,id',
             'answers' => 'required|array',
         ]);
 
-        $questions = $request->questions;
-        $studentAnswers = $request->answers; 
+        $student = Auth::user()?->student;
 
-        $correctCount = 0;
-        $wrongQuestions = [];
-        $results = [];
-
-        foreach ($questions as $q) {
-            $qId = (string) $q['id'];
-            $studentAnswer = $studentAnswers[$qId] ?? null;
-            $isCorrect = $studentAnswer === $q['correct_answer'];
-
-            if ($isCorrect) {
-                $correctCount++;
-            } else {
-                $wrongQuestions[] = $q + ['student_answer' => $studentAnswer];
-            }
-
-            $results[] = [
-                'id' => $q['id'],
-                'question' => $q['question'],
-                'student_answer' => $studentAnswer,
-                'correct_answer' => $q['correct_answer'],
-                'is_correct' => $isCorrect,
-            ];
+        if (!$student) {
+            return response()->json(['message' => 'Student profile not found'], 404);
         }
 
-        $total = count($questions);
-        $score = round(($correctCount / $total) * 100);
+        try {
+            $attempt = InterviewQuizAttempt::findOrFail($request->attempt_id);
 
-        $explanations = [];
+            return response()->json($attemptService->submit($attempt, $student, $request->answers));
+        } catch (\Exception $e) {
+            $status = str_contains($e->getMessage(), 'not allowed') ? 403 : 422;
 
-        
-        if (!empty($wrongQuestions)) {
-            $wrongSummary = collect($wrongQuestions)->map(function ($q) {
-                $options = collect($q['options'])->map(fn($v, $k) => "{$k}) {$v}")->implode(', ');
-                return "Question: {$q['question']}\nOptions: {$options}\nStudent chose: {$q['student_answer']}\nCorrect answer: {$q['correct_answer']}";
-            })->implode("\n\n");
-
-            $prompt = "For each of the following interview questions the student answered incorrectly, explain briefly (1-2 sentences) why the correct answer is right and why the student's choice was wrong.
-
-{$wrongSummary}
-
-Respond ONLY in this EXACT JSON format (no markdown, no extra text):
-{
-  \"explanations\": [
-    {\"question\": \"<question text>\", \"explanation\": \"<why correct answer is right and student's choice was wrong>\"}
-  ]
-}";
-
-            try {
-                $result = $groq->generate($prompt);
-                $cleaned = preg_replace('/```json|```/', '', $result);
-                $parsed = json_decode(trim($cleaned), true);
-                $explanations = $parsed['explanations'] ?? [];
-            } catch (\Exception $e) {
-      
-                $explanations = [];
-            }
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], $status);
         }
+    }
 
-        return response()->json([
-            'score' => $score,
-            'correct_count' => $correctCount,
-            'total_questions' => $total,
-            'results' => $results,
-            'explanations' => $explanations,
+    public function interviewQuizAttempts(Request $request, InterviewQuizAttemptService $attemptService)
+    {
+        $request->validate([
+            'job_id' => 'required|integer|exists:job_posts,id',
         ]);
+
+        $job = \App\Models\JobPost::findOrFail($request->job_id);
+        $student = Auth::user()?->student;
+
+        if (!$student) {
+            return response()->json(['message' => 'Student profile not found'], 404);
+        }
+
+        try {
+            return response()->json([
+                'job_id' => $job->id,
+                'attempts' => $attemptService->history($job, $student),
+            ]);
+        } catch (\Exception $e) {
+            $status = $e->getMessage() === 'Please save this job before starting the interview quiz.' ? 403 : 422;
+
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], $status);
+        }
     }
 }

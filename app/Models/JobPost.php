@@ -68,6 +68,11 @@ class JobPost extends Model
         return $this->hasMany(AIJobMatching::class);
     }
 
+    public function interviewQuizAttempts()
+    {
+        return $this->hasMany(InterviewQuizAttempt::class, 'job_id');
+    }
+
     public function savedBy()
     {
         return $this->hasMany(SavedJob::class);

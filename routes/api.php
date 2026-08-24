@@ -111,6 +111,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ai/job-recommendations', [AIAssistantController::class, 'aiJobRecommendations']);
     Route::post('/ai/interview/questions', [AIAssistantController::class, 'generateInterviewQuestions']);
     Route::post('/ai/interview/submit', [AIAssistantController::class, 'submitInterviewAnswers']);
+    Route::post('/ai/interview/retake', [AIAssistantController::class, 'retakeInterviewQuiz']);
+    Route::get('/ai/interview/attempts', [AIAssistantController::class, 'interviewQuizAttempts']);
 
     //Company Dashboard
     Route::get('/company/dashboard', [CompanyDashboardController::class, 'index']);
@@ -157,6 +159,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //shortlist applicant
     Route::patch('/company/applications/{application}/shortlist', [CompanyController::class, 'shortlist']);
+    Route::get('/company/shortlisted', [CompanyController::class, 'allShortlisted']);
     Route::get('/company/jobs/{job}/shortlisted', [CompanyController::class, 'getShortlisted']);
 
     //interview routes in applicant details
@@ -224,6 +227,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/admin/jobs/{job}/reject', [AdminJobModerationController::class, 'reject']);
     Route::patch('/admin/jobs/{job}/request-changes', [AdminJobModerationController::class, 'requestChanges']);
     Route::patch('/admin/jobs/{job}/suspend', [AdminJobModerationController::class, 'suspend']);
+    Route::patch('/admin/jobs/{job}/restore-review', [AdminJobModerationController::class, 'restoreToReview']);
 
     // Admin skills routes
     Route::get('/admin/skills', [AdminSkillController::class, 'index']);
