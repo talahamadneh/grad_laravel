@@ -8,16 +8,17 @@ use App\Models\Resume;
 
 class JobMatchingService
 {
+    public function __construct(private LocalJobMatchingService $localMatcher)
+    {
+    }
+
     public function getRecommendedJobs($student)
     {
         $resume = Resume::where('student_id', $student->id)
             ->latest()
             ->first();
 
-        $studentSkills = collect($resume?->skills ?? [])
-            ->pluck('name')
-            ->map(fn($skill) => strtolower(trim($skill)))
-            ->toArray();
+        $student->loadMissing(['skills', 'education']);
 
         $savedIds = SavedJob::where('student_id', $student->id)
             ->pluck('job_post_id')
@@ -30,70 +31,10 @@ class JobMatchingService
             ->where('status', 'Open')
             ->get();
 
-        $recommendedJobs = $jobs->map(function ($job) use ($student, $studentSkills, $savedIds) {
+        $matches = $this->localMatcher->matchJobsWithFallback($student, $jobs, $resume);
 
-            $jobSkills = $job->skills
-                ->pluck('name')
-                ->map(fn($skill) => strtolower(trim($skill)))
-                ->toArray();
-
-            $matchingSkills = array_values(array_intersect($studentSkills, $jobSkills));
-
-            $missingSkills = array_values(array_diff($jobSkills, $studentSkills));
-
-            $matchedSkillsCount = count($matchingSkills);
-            $totalSkillsCount = count($jobSkills);
-
-            $reasons = [];
-
-
-            $skillScore = ($matchedSkillsCount / max($totalSkillsCount, 1)) * 80;
-
-            if ($matchedSkillsCount > 0) {
-                $reasons[] = "Matches your skills: " . implode(", ", $matchingSkills);
-            }
-
-            $locationScore = 0;
-            if (
-                $student->location &&
-                $job->location &&
-                strtolower(trim($student->location)) === strtolower(trim($job->location))
-            ) {
-                $locationScore = 10;
-                $reasons[] = "Matches your preferred location";
-            }
-
-            $typeScore = 0;
-            if (
-                $student->preferred_employment_type &&
-                $job->employment_type &&
-                strtolower(trim($student->preferred_employment_type)) === strtolower(trim($job->employment_type))
-            ) {
-                $typeScore = 5;
-                $reasons[] = "Matches your preferred employment type";
-            }
-
-            $majorScore = 0;
-            if (
-                $student->major &&
-                $job->required_major &&
-                strtolower(trim($student->major)) === strtolower(trim($job->required_major))
-            ) {
-                $majorScore = 5;
-                $reasons[] = "Matches your major";
-            }
-
-            $totalScore = round($skillScore + $locationScore + $typeScore + $majorScore);
-
-            if ($totalScore >= 90) {
-                $level = "Excellent Match";
-            } elseif ($totalScore >= 75) {
-                $level = "Good Match";
-            } elseif ($totalScore >= 50) {
-                $level = "Fair Match";
-            } else {
-                $level = "Low Match";
-            }
+        $recommendedJobs = $jobs->map(function ($job) use ($matches, $savedIds) {
+            $match = $this->formatMatchResult($matches[$job->id] ?? null);
 
             return [
                 "job_id" => $job->id,
@@ -102,12 +43,19 @@ class JobMatchingService
                 "location" => $job->location,
                 "salary" => $job->salary,
                 "employment_type" => $job->employment_type,
+                "level" => $job->level,
+                "min_experience_years" => $job->min_experience_years,
+                "max_experience_years" => $job->max_experience_years,
                 "work_mode" => $job->work_mode,
-                "match" => $totalScore,
-                "recommendation_level" => $level,
-                "matching_skills" => $matchingSkills,
-                "missing_skills" => $missingSkills,
-                "reasons" => $reasons,
+                "match" => $match['match'],
+                "recommendation_level" => $match['level'],
+                "level_match" => $match['level'],
+                "matching_skills" => $match['matching_skills'],
+                "missing_skills" => $match['missing_skills'],
+                "breakdown" => $match['breakdown'],
+                "reasons" => $match['reasons'],
+                "warnings" => $match['warnings'],
+                "match_source" => $match['match_source'],
                 "is_saved" => in_array($job->id, $savedIds)
             ];
 
@@ -124,60 +72,65 @@ class JobMatchingService
             ->latest()
             ->first();
 
-        $studentSkills = collect($resume?->skills ?? [])
-            ->pluck('name')
-            ->map(fn($skill) => strtolower(trim($skill)))
-            ->toArray();
+        return $this->formatMatchResult(
+            $this->localMatcher->matchWithFallback($student, $job, $resume)
+        );
+    }
 
-        $jobSkills = $job->skills
-            ->pluck('name')
-            ->map(fn($skill) => strtolower(trim($skill)))
-            ->toArray();
+    public function calculateMatches($student, iterable $jobs): array
+    {
+        $resume = Resume::where('student_id', $student->id)
+            ->latest()
+            ->first();
 
-        $matchingSkills = array_values(array_intersect($studentSkills, $jobSkills));
+        $student->loadMissing(['skills', 'education']);
 
-        $missingSkills = array_values(array_diff($jobSkills, $studentSkills));
+        $matches = $this->localMatcher->matchJobsWithFallback($student, $jobs, $resume);
 
-        $matchedSkillsCount = count($matchingSkills);
-        $totalSkillsCount = count($jobSkills);
+        return collect($jobs)
+            ->mapWithKeys(fn ($job) => [
+                $job->id => $this->formatMatchResult($matches[$job->id] ?? null),
+            ])
+            ->all();
+    }
 
+    public function calculateMatchWithResume($student, $job, ?Resume $resume = null)
+    {
+        return $this->formatMatchResult(
+            $this->localMatcher->matchWithFallback($student, $job, $resume)
+        );
+    }
 
-
-        $skillScore = ($matchedSkillsCount / max($totalSkillsCount, 1)) * 80;
-
-        $locationScore = 0;
-        if (
-            $student->location &&
-            $job->location &&
-            strtolower(trim($student->location)) === strtolower(trim($job->location))
-        ) {
-            $locationScore = 10;
-        }
-
-        $typeScore = 0;
-        if (
-            $student->preferred_employment_type &&
-            $job->employment_type &&
-            strtolower(trim($student->preferred_employment_type)) === strtolower(trim($job->employment_type))
-        ) {
-            $typeScore = 5;
-        }
-
-        $majorScore = 0;
-        if (
-            $student->major &&
-            $job->required_major &&
-            strtolower(trim($student->major)) === strtolower(trim($job->required_major))
-        ) {
-            $majorScore = 5;
-        }
-
-        $totalScore = round($skillScore + $locationScore + $typeScore + $majorScore);
+    public function formatMatchResult(?array $result): array
+    {
+        $score = (int) round((float) ($result['score'] ?? 0));
 
         return [
-            "match" => $totalScore,
-            "matching_skills" => $matchingSkills,
-            "missing_skills" => $missingSkills
+            "match" => max(0, min(100, $score)),
+            "level" => $result['level'] ?? $this->level($score),
+            "matching_skills" => array_values($result['matching_skills'] ?? []),
+            "missing_skills" => array_values($result['missing_skills'] ?? []),
+            "breakdown" => $result['breakdown'] ?? [],
+            "reasons" => array_values($result['reasons'] ?? []),
+            "warnings" => array_values($result['warnings'] ?? []),
+            "match_source" => $result['match_source'] ?? 'local_python',
         ];
+    }
+
+    private function level(int $score): string
+    {
+        if ($score >= 90) {
+            return 'Excellent Match';
+        }
+
+        if ($score >= 75) {
+            return 'Good Match';
+        }
+
+        if ($score >= 60) {
+            return 'Fair Match';
+        }
+
+        return 'Low Match';
     }
 }

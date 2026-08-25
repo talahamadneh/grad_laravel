@@ -18,6 +18,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 class CompanyController extends Controller
 {
@@ -41,10 +42,15 @@ class CompanyController extends Controller
                     'title' => $job->title,
                     'dept' => $job->department,
                     'type' => $job->employment_type,
+                    'level' => $job->level,
+                    'min_experience_years' => $job->min_experience_years,
+                    'max_experience_years' => $job->max_experience_years,
                     'mode' => $job->work_mode,
                     'location' => $job->location,
                     'status' => $job->status,
                     'quality_score' => $job->quality_score,
+                    'moderation_note' => $job->moderation_note,
+                    'moderation_issues' => $job->moderation_issues ?? [],
                     'moderation_recommendation' => $job->moderation_recommendation,
                     'applicants' => $job->applications_count,
                     'company' => $company->company_name,
@@ -90,8 +96,8 @@ class CompanyController extends Controller
             'company_size' => 'nullable|string|max:255',
             'stage' => 'nullable|string|max:255',
             'founded_year' => 'nullable|digits:4',
-            'logo' => 'nullable|string',
-            'cover_image' => 'nullable|string',
+            'logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+            'cover_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
             'values' => 'nullable|array',
             'values.*' => 'string|max:255',
             'benefits' => 'nullable|array',
@@ -100,6 +106,7 @@ class CompanyController extends Controller
 
         if ($validator->fails()) {
             return response()->json([
+                'message' => $validator->errors()->first(),
                 'errors' => $validator->errors()
             ], 422);
         }
@@ -115,8 +122,21 @@ class CompanyController extends Controller
         $company->company_size = $validated['company_size'] ?? $company->company_size;
         $company->stage = $validated['stage'] ?? $company->stage;
         $company->founded_year = $validated['founded_year'] ?? $company->founded_year;
-        $company->logo = $validated['logo'] ?? $company->logo;
-        $company->cover_image = $validated['cover_image'] ?? $company->cover_image;
+        foreach (['logo', 'cover_image'] as $imageField) {
+            if ($request->hasFile($imageField)) {
+                $oldPath = $company->getRawOriginal($imageField);
+                $newPath = $request->file($imageField)->store(
+                    "companies/{$company->id}",
+                    'public'
+                );
+
+                $company->setAttribute($imageField, $newPath);
+
+                if ($oldPath && Storage::disk('public')->exists($oldPath)) {
+                    Storage::disk('public')->delete($oldPath);
+                }
+            }
+        }
         $company->values = $validated['values'] ?? $company->values;
         $company->benefits = $validated['benefits'] ?? $company->benefits;
 
@@ -165,10 +185,13 @@ class CompanyController extends Controller
             'department' => 'nullable|string|max:255',
             'employment_type' => 'required|in:Full-Time,Part-Time,Internship,Contract',
             'level' => 'nullable|string|max:255',
+            'min_experience_years' => 'nullable|numeric|min:0|max:60',
+            'max_experience_years' => 'nullable|numeric|min:0|max:60|gte:min_experience_years',
             'work_mode' => 'required|in:Remote,Hybrid,On-site',
             'location' => 'nullable|string|max:255',
             'salary' => 'nullable|numeric',
             'description' => 'nullable|string',
+            'responsibilities' => 'nullable|string',
             'requirements' => 'nullable|string',
             'skills' => 'nullable|array',
             'skills.*' => 'string|max:255',
@@ -176,6 +199,7 @@ class CompanyController extends Controller
             'benefits.*' => 'string|max:255',
             'deadline' => 'nullable|date',
             'vacancies' => 'nullable|integer|min:1',
+            'required_major' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -192,14 +216,18 @@ class CompanyController extends Controller
             'department' => $validated['department'] ?? null,
             'employment_type' => $validated['employment_type'],
             'level' => $validated['level'] ?? null,
+            'min_experience_years' => $validated['min_experience_years'] ?? null,
+            'max_experience_years' => $validated['max_experience_years'] ?? null,
             'work_mode' => $validated['work_mode'],
             'location' => $validated['location'] ?? null,
             'salary' => $validated['salary'] ?? null,
             'description' => $validated['description'] ?? null,
+            'responsibilities' => $validated['responsibilities'] ?? null,
             'requirements' => $validated['requirements'] ?? null,
             'benefits' => $validated['benefits'] ?? [],
             'deadline' => $validated['deadline'] ?? null,
             'vacancies' => $validated['vacancies'] ?? 1,
+            'required_major' => $validated['required_major'] ?? null,
             'status' => 'Pending Review',
         ]);
 
@@ -877,8 +905,12 @@ Provide a short professional hiring summary.
             'title' => $job->title,
             'department' => $job->department,
             'description' => $job->description,
+            'responsibilities' => $job->responsibilities,
             'requirements' => $job->requirements,
             'employment_type' => $job->employment_type,
+            'level' => $job->level,
+            'min_experience_years' => $job->min_experience_years,
+            'max_experience_years' => $job->max_experience_years,
             'work_mode' => $job->work_mode,
             'location' => $job->location,
             'salary' => $job->salary,
@@ -959,8 +991,12 @@ Provide a short professional hiring summary.
             'title' => $job->title,
             'department' => $job->department,
             'description' => $job->description,
+            'responsibilities' => $job->responsibilities,
+            'requirements' => $job->requirements,
             'employment_type' => $job->employment_type,
             'level' => $job->level,
+            'min_experience_years' => $job->min_experience_years,
+            'max_experience_years' => $job->max_experience_years,
             'work_mode' => $job->work_mode,
             'location' => $job->location,
             'salary' => $job->salary,
@@ -1004,10 +1040,13 @@ Provide a short professional hiring summary.
             'department' => 'nullable|string|max:255',
             'employment_type' => 'required|in:Full-Time,Part-Time,Internship,Contract',
             'level' => 'nullable|string|max:255',
+            'min_experience_years' => 'nullable|numeric|min:0|max:60',
+            'max_experience_years' => 'nullable|numeric|min:0|max:60|gte:min_experience_years',
             'work_mode' => 'required|in:Remote,Hybrid,On-site',
             'location' => 'nullable|string|max:255',
             'salary' => 'nullable|numeric',
             'description' => 'nullable|string',
+            'responsibilities' => 'nullable|string',
             'requirements' => 'nullable|string',
             'skills' => 'nullable|array',
             'skills.*' => 'string|max:255',
@@ -1035,10 +1074,13 @@ Provide a short professional hiring summary.
             'department' => $validated['department'] ?? null,
             'employment_type' => $validated['employment_type'],
             'level' => $validated['level'] ?? null,
+            'min_experience_years' => $validated['min_experience_years'] ?? null,
+            'max_experience_years' => $validated['max_experience_years'] ?? null,
             'work_mode' => $validated['work_mode'],
             'location' => $validated['location'] ?? null,
             'salary' => $validated['salary'] ?? null,
             'description' => $validated['description'] ?? null,
+            'responsibilities' => $validated['responsibilities'] ?? null,
             'requirements' => $validated['requirements'] ?? null,
             'benefits' => $validated['benefits'] ?? [],
             'deadline' => $validated['deadline'] ?? null,
@@ -1067,6 +1109,11 @@ Provide a short professional hiring summary.
                 'job' => $job->fresh('skills')
             ]);
         }
+
+        $job->update([
+            'moderation_note' => null,
+            'reviewed_at' => null,
+        ]);
 
         $validation = $validationService->apply($job->fresh('skills'));
 
@@ -1221,6 +1268,71 @@ Provide a short professional hiring summary.
                         'is_public' => $resume->is_public,
                         'updated_at' => $resume->updated_at,
                     ] : null,
+
+                    'shortlisted_at' => $application->updated_at,
+                ];
+            })
+        );
+    }
+
+    public function allShortlisted(Request $request)
+    {
+        $company = Company::where(
+            'user_id',
+            $request->user()->id
+        )->first();
+
+        if (!$company) {
+            return response()->json([
+                'message' => 'Company profile not found',
+            ], 404);
+        }
+
+        $applications = Application::query()
+            ->where('status', 'Shortlisted')
+            ->whereHas('jobPost', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->with([
+                'jobPost:id,title,company_id',
+                'student.user',
+                'student.skills',
+                'resume',
+            ])
+            ->latest('updated_at')
+            ->get();
+
+        return response()->json(
+            $applications->map(function ($application) {
+                $student = $application->student;
+                $resume = $application->resume;
+
+                return [
+                    'id' => $application->id,
+                    'status' => $application->status,
+
+                    'job' => [
+                        'id' => $application->jobPost->id,
+                        'title' => $application->jobPost->title,
+                    ],
+
+                    'student' => [
+                        'name' => $resume?->full_name
+                            ?? $student->user?->name
+                            ?? '',
+                        'email' => $student->user?->email ?? '',
+                        'phone' => $student->phone,
+                        'avatar' => $student->avatar,
+                        'headline' => $resume?->professional_title
+                            ?? $student->headline,
+                        'university' => $student->university,
+                        'major' => $student->major,
+                        'gpa' => $student->gpa,
+                        'location' => $student->location,
+                    ],
+
+                    'skills' => $resume?->skills
+                        ?? $student->skills->pluck('name')->values(),
 
                     'shortlisted_at' => $application->updated_at,
                 ];

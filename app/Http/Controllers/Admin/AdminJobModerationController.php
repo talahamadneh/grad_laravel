@@ -14,12 +14,12 @@ class AdminJobModerationController extends Controller
         $this->authorizeAdmin($request);
 
         $request->validate([
-            'status' => 'nullable|in:Pending Review,Changes Requested,Suspended',
+            'status' => 'nullable|in:Open,Pending Review,Changes Requested,Suspended,Rejected,Closed',
             'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         $query = JobPost::with(['company', 'skills'])
-            ->whereIn('status', ['Pending Review', 'Changes Requested', 'Suspended']);
+            ->withCount('applications');
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -41,8 +41,11 @@ class AdminJobModerationController extends Controller
     {
         $this->authorizeAdmin($request);
 
+        $job->load(['company', 'skills'])
+            ->loadCount('applications');
+
         return response()->json([
-            'job' => $this->formatJob($job->load(['company', 'skills'])),
+            'job' => $this->formatJob($job),
             'latest_validation' => [
                 'quality_score' => $job->quality_score,
                 'status' => $job->status,
@@ -86,13 +89,13 @@ class AdminJobModerationController extends Controller
         $this->authorizeAdmin($request);
 
         $validated = $request->validate([
-            'note' => 'nullable|string|max:2000',
+            'note' => 'required|string|min:10|max:2000',
         ]);
 
         $job->update([
             'status' => 'Rejected',
             'moderation_recommendation' => 'Reject',
-            'moderation_note' => $validated['note'] ?? null,
+            'moderation_note' => $validated['note'],
             'reviewed_at' => now(),
         ]);
 
@@ -100,7 +103,7 @@ class AdminJobModerationController extends Controller
             $job->id,
             $job->title,
             $request->user()?->id,
-            $validated['note'] ?? null
+            $validated['note']
         );
 
         return response()->json([
@@ -165,6 +168,32 @@ class AdminJobModerationController extends Controller
         ]);
     }
 
+    public function restoreToReview(Request $request, JobPost $job)
+    {
+        $this->authorizeAdmin($request);
+
+        if ($job->status !== 'Rejected') {
+            return response()->json([
+                'message' => 'Only rejected jobs can be restored to review.',
+            ], 422);
+        }
+
+        $job->update([
+            'status' => 'Pending Review',
+            'moderation_recommendation' => 'Manual Review',
+            'moderation_note' => null,
+            'reviewed_at' => null,
+        ]);
+
+        $job->load(['company', 'skills'])
+            ->loadCount('applications');
+
+        return response()->json([
+            'message' => 'Job restored to pending review successfully.',
+            'job' => $this->formatJob($job),
+        ]);
+    }
+
     private function authorizeAdmin(Request $request): void
     {
         abort_if(strtolower($request->user()?->role ?? '') !== 'admin', 403, 'Unauthorized. Admin access required.');
@@ -180,11 +209,17 @@ class AdminJobModerationController extends Controller
             'description' => $job->description,
             'requirements' => $job->requirements,
             'employment_type' => $job->employment_type,
+            'level' => $job->level,
+            'min_experience_years' => $job->min_experience_years,
+            'max_experience_years' => $job->max_experience_years,
             'work_mode' => $job->work_mode,
             'location' => $job->location,
             'salary' => $job->salary,
             'deadline' => $job->deadline,
+            'required_major' => $job->required_major,
             'status' => $job->status,
+            'applications_count' => $job->applications_count
+                ?? $job->applications()->count(),
             'quality_score' => $job->quality_score,
             'moderation_issues' => $job->moderation_issues ?? [],
             'moderation_recommendation' => $job->moderation_recommendation,

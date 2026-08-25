@@ -21,6 +21,8 @@ class JobPost extends Model
         'salary',
         'employment_type',
         'level',
+        'min_experience_years',
+        'max_experience_years',
         'work_mode',
         'location',
         'deadline',
@@ -37,6 +39,8 @@ class JobPost extends Model
 
     protected $casts = [
         'benefits' => 'array',
+        'min_experience_years' => 'decimal:1',
+        'max_experience_years' => 'decimal:1',
         'moderation_issues' => 'array',
         'deadline' => 'date',
         'moderated_at' => 'datetime',

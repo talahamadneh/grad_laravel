@@ -18,6 +18,7 @@ class Resume extends Model
         'professional_title',
         'summary',
         'experience',
+        'total_years_experience',
         'education',
         'skills',
         'projects',
@@ -30,6 +31,7 @@ class Resume extends Model
 
     protected $casts = [
         'experience' => 'array',
+        'total_years_experience' => 'decimal:1',
         'education' => 'array',
         'skills' => 'array',
         'projects' => 'array',

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Services\GroqService;
 use App\Services\LocalCVAnalyzerService;
 use App\Services\InterviewQuestionGenerationService;
 use App\Services\InterviewQuizAttemptService;
@@ -39,7 +38,7 @@ class AIAssistantController extends Controller
         }
     }
 
-    public function aiJobRecommendations(Request $request, JobMatchingService $matchingService, GroqService $groq)
+    public function aiJobRecommendations(Request $request, JobMatchingService $matchingService)
     {
         $student = Auth::user()->student;
 
@@ -55,68 +54,57 @@ class AIAssistantController extends Controller
             ], 404);
         }
 
-        
-        $studentSkills = $student->skills->pluck('name')->implode(', ');
+        $finalResult = $topJobs->map(function ($job) {
+            return array_merge($job, [
+                'why_it_fits' => $this->localWhyItFits($job),
+                'tip' => $this->localRecommendationTip($job),
+            ]);
+        });
 
-        $jobsSummary = $topJobs->map(function ($job) {
-            return "Job ID: {$job['job_id']}, Title: {$job['title']}, Company: {$job['company']}, "
-                . "Match: {$job['match']}%, Matching Skills: " . implode(', ', $job['matching_skills'])
-                . ", Missing Skills: " . implode(', ', $job['missing_skills']);
-        })->implode("\n");
-
-        $prompt = "You are a career advisor AI. A student has the following profile:
-Major: {$student->major}
-Location: {$student->location}
-Skills: {$studentSkills}
-
-Here are their top matching job opportunities (already ranked by a matching algorithm):
-{$jobsSummary}
-
-For EACH job, write a short, natural, personalized explanation (2-3 sentences) of why it's a good fit for this student, and ONE specific tip to improve their chances (e.g. a skill to learn).
-
-Respond ONLY in this exact JSON format (no markdown, no extra text):
-{
-  \"recommendations\": [
-    {
-      \"job_id\": <number>,
-      \"why_it_fits\": \"<personalized explanation>\",
-      \"tip\": \"<one specific actionable tip>\"
+        return response()->json($finalResult);
     }
-  ]
-}";
 
-        try {
-            $result = $groq->generate($prompt);
-            $cleaned = preg_replace('/```json|```/', '', $result);
-            $parsed = json_decode(trim($cleaned), true);
+    private function localWhyItFits(array $job): string
+    {
+        $parts = [];
+        $matched = count($job['matching_skills'] ?? []);
+        $missing = count($job['missing_skills'] ?? []);
+        $total = $matched + $missing;
 
-            if (!$parsed || !isset($parsed['recommendations'])) {
-                return response()->json([
-                    'message' => 'Could not parse AI response',
-                    'raw' => $result
-                ], 500);
-            }
-
-
-            $aiMap = collect($parsed['recommendations'])->keyBy('job_id');
-
-            $finalResult = $topJobs->map(function ($job) use ($aiMap) {
-                $ai = $aiMap->get($job['job_id']);
-
-                return array_merge($job, [
-                    'why_it_fits' => $ai['why_it_fits'] ?? null,
-                    'tip' => $ai['tip'] ?? null,
-                ]);
-            });
-
-            return response()->json($finalResult);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'AI service error',
-                'error' => $e->getMessage()
-            ], 500);
+        if ($total > 0) {
+            $parts[] = "You match {$matched} of {$total} required skills";
         }
+
+        foreach (($job['reasons'] ?? []) as $reason) {
+            $parts[] = lcfirst(rtrim($reason, '.'));
+        }
+
+        if (empty($parts)) {
+            return "This role is ranked from your local profile and job compatibility score.";
+        }
+
+        return ucfirst(implode(', ', array_slice($parts, 0, 3))) . '.';
+    }
+
+    private function localRecommendationTip(array $job): string
+    {
+        $tips = [];
+
+        if (!empty($job['missing_skills'])) {
+            $tips[] = 'strengthen ' . implode(', ', array_slice($job['missing_skills'], 0, 3));
+        }
+
+        $warnings = collect($job['warnings'] ?? [])
+            ->filter(fn ($warning) => str_contains(strtolower($warning), 'preference'))
+            ->values();
+
+        if ($warnings->isNotEmpty()) {
+            $tips[] = 'complete your location and employment preferences';
+        }
+
+        return $tips
+            ? 'Consider ' . implode(' and ', $tips) . '.'
+            : 'Keep your resume projects and skills up to date for this role.';
     }
 
     public function generateInterviewQuestions(Request $request, InterviewQuizAttemptService $attemptService)

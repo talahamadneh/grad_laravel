@@ -68,11 +68,15 @@ class JobController extends Controller
                 ->pluck('job_post_id')
                 ->toArray();
 
-            $jobs->getCollection()->transform(function ($job) use ($student, $savedIds) {
+            $matches = $this->jobMatchingService->calculateMatches(
+                $student,
+                $jobs->getCollection()
+            );
+
+            $jobs->getCollection()->transform(function ($job) use ($matches, $savedIds) {
                 $job->is_saved = in_array($job->id, $savedIds);
 
-                $job->match = $this->jobMatchingService
-                    ->calculateMatch($student, $job);
+                $job->match = $matches[$job->id] ?? $this->jobMatchingService->formatMatchResult(null);
 
                 return $job;
             });
@@ -174,7 +178,7 @@ class JobController extends Controller
             ], 404);
         }
 
-        $job = JobPost::with('company')
+        $job = JobPost::with(['company', 'skills'])
             ->where('status', 'Open')
             ->find($id);
 
@@ -236,26 +240,26 @@ class JobController extends Controller
             'resume'
         ]);
 
-        $score = NotificationService::calculateApplicationMatchScore($application);
+        $match = $this->jobMatchingService->calculateMatchWithResume(
+            $student,
+            $application->jobPost,
+            $resume
+        );
 
-        $match = [
-            'score' => $score,
-            'analysis' => [
-                'level' => 'Pending AI Analysis',
-                'matching_points' => [],
-                'missing_points' => [],
-                'location_assessment' => null,
-                'skills_assessment' => null,
-                'recommendation' => null,
-                'source' => 'fallback',
-            ],
-            'source' => 'fallback',
+        $analysis = [
+            'level' => $match['level'],
+            'breakdown' => $match['breakdown'],
+            'matching_skills' => $match['matching_skills'],
+            'missing_skills' => $match['missing_skills'],
+            'reasons' => $match['reasons'],
+            'warnings' => $match['warnings'],
+            'source' => $match['match_source'],
         ];
 
         $application->update([
-            'match_score' => $match['score'],
-            'match_analysis' => $match['analysis'],
-            'match_source' => $match['source'],
+            'match_score' => $match['match'],
+            'match_analysis' => $analysis,
+            'match_source' => $match['match_source'],
         ]);
 
         $application->refresh();

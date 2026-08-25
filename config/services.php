@@ -52,6 +52,11 @@ return [
         'timeout' => env('CV_ANALYZER_TIMEOUT', 8),
     ],
 
+    'local_job_matcher' => [
+        'url' => env('LOCAL_JOB_MATCHER_URL', env('CV_ANALYZER_URL', 'http://127.0.0.1:8001')),
+        'timeout' => env('LOCAL_JOB_MATCHER_TIMEOUT', 8),
+    ],
+
     'cv_external_ai' => [
         'enabled' => env('CV_EXTERNAL_AI_ENABLED', false),
     ],
