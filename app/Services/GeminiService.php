@@ -58,8 +58,8 @@ class GeminiService
                             'temperature' => 0.2,
                         ], $generationConfig),
                     ]);
-            } catch (Throwable) {
-                $lastError = 'Gemini request failed before receiving a response.';
+            } catch (Throwable $exception) {
+                $lastError = $this->safeErrorMessage(0, $exception->getMessage() ?: 'temporary provider failure');
                 continue;
             }
 
@@ -70,20 +70,60 @@ class GeminiService
             }
 
             $status = $response->status();
-            $lastError = $response->body();
+            $lastError = $this->safeErrorMessage($status, $response->json('error.message') ?? $response->body());
 
-            if ($status === 429 || $status === 503) {
+            if ($this->shouldTryNextKey($status, $lastError)) {
                 continue;
             }
 
             throw new Exception($lastError);
         }
 
-        throw new Exception('All Gemini API keys failed. Last error: ' . $lastError);
+        throw new Exception('All Gemini API keys failed. Last error: ' . ($lastError ?: 'provider unavailable'));
     }
 
     private function url(string $key): string
     {
         return "{$this->baseUrl}/{$this->model}:generateContent?key={$key}";
+    }
+
+    private function shouldTryNextKey(int $status, string $message): bool
+    {
+        $message = strtolower($message);
+
+        return in_array($status, [429, 503], true)
+            || str_contains($message, 'timeout')
+            || str_contains($message, 'timed out')
+            || str_contains($message, 'connection')
+            || str_contains($message, 'network')
+            || str_contains($message, 'could not resolve')
+            || str_contains($message, 'service unavailable')
+            || str_contains($message, 'temporarily unavailable');
+    }
+
+    private function safeErrorMessage(int $status, string $message): string
+    {
+        $message = trim($message);
+
+        if ($status === 429) {
+            return 'rate limit';
+        }
+
+        if ($status === 503) {
+            return 'provider unavailable';
+        }
+
+        if ($message === '') {
+            return $status > 0 ? "provider error {$status}" : 'temporary provider failure';
+        }
+
+        foreach ($this->apiKeys as $key) {
+            if ($key !== '') {
+                $message = str_replace($key, '[redacted]', $message);
+            }
+        }
+        $message = preg_replace('/(key=)[^&\s)]+/i', '$1[redacted]', $message) ?? $message;
+
+        return substr($message, 0, 240);
     }
 }

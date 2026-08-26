@@ -25,23 +25,21 @@ return [
 
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
-        'keys' => array_values(array_filter([
-            env('GEMINI_API_KEY'),
-            //env('GEMINI_API_KEY_1'),
-           // env('GEMINI_API_KEY_2'),
-           // env('GEMINI_API_KEY_3'),
-           // env('GEMINI_API_KEY_4'),
-        ])),
+        'keys' => array_values(array_unique(array_filter(array_map('trim',
+            env('GEMINI_API_KEYS')
+                ? explode(',', env('GEMINI_API_KEYS'))
+                : [env('GEMINI_API_KEY')]
+        )))),
         'model' => env('GEMINI_MODEL', 'gemini-flash-lite-latest'),
         'interview_max_output_tokens' => env('GEMINI_INTERVIEW_MAX_OUTPUT_TOKENS', 8192),
     ],
 
     'groq' => [
-        'keys' => array_values(array_filter([
-            env('GROQ_API_KEY'),
-            // env('GROQ_API_KEY_1'),
-            // env('GROQ_API_KEY_2'),
-        ])),
+        'keys' => array_values(array_unique(array_filter(array_map('trim',
+            env('GROQ_API_KEYS')
+                ? explode(',', env('GROQ_API_KEYS'))
+                : [env('GROQ_API_KEY')]
+        )))),
         'model' => env('GROQ_MODEL', 'llama-3.3-70b-versatile'),
         'max_completion_tokens' => env('GROQ_MAX_COMPLETION_TOKENS', 8192),
         'interview_max_completion_tokens' => env('GROQ_INTERVIEW_MAX_COMPLETION_TOKENS', 4500),

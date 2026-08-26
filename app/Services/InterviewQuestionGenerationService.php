@@ -53,6 +53,10 @@ class InterviewQuestionGenerationService
         );
         $timing['devdocs_retrieval_ms'] = $this->elapsedMs($stageStartedAt);
 
+        if (empty($docs['covered_skills'] ?? []) && empty($docs['unsupported_technical_skills'] ?? [])) {
+            throw new RuntimeException('No supported technical interview skills are available for this job.');
+        }
+
         if (!config('services.interview_external_ai.enabled')) {
             throw new RuntimeException('Interview question generation is temporarily unavailable. External AI is disabled for this feature.');
         }
@@ -86,6 +90,9 @@ class InterviewQuestionGenerationService
                 'source_docs' => $docs['retrieved_documents'] ?? [],
                 'covered_skills' => $docs['covered_skills'],
                 'uncovered_skills' => $docs['uncovered_skills'],
+                'unsupported_technical_skills' => $docs['unsupported_technical_skills'] ?? [],
+                'excluded_non_technical_skills' => $docs['excluded_non_technical_skills'] ?? [],
+                'generation_sources' => collect($questions)->pluck('source')->unique()->values()->all(),
                 'context_character_count' => $this->lastContextStats['documentation_context_chars'] ?? ($docs['context_character_count'] ?? null),
                 'estimated_input_tokens' => $this->lastContextStats['estimated_input_tokens'] ?? null,
                 'grounding_validation_retry_occurred' => $this->lastGenerationRetried,
@@ -117,7 +124,7 @@ class InterviewQuestionGenerationService
             'corrective_attempts_by_skill' => [],
             'corrective_topics_rotated_to' => [],
             'topic_diversity' => [],
-            'primary_provider_attempted' => 'groq',
+            'primary_provider_attempted' => $this->primaryProvider(),
             'fallback_used' => false,
             'ai_provider_used' => null,
             'provider_calls' => [],
@@ -171,6 +178,8 @@ class InterviewQuestionGenerationService
             'relevant_technical_skills' => $docs['relevant_technical_skills'] ?? [],
             'covered_skills' => $docs['covered_skills'] ?? [],
             'uncovered_skills' => $docs['uncovered_skills'] ?? [],
+            'unsupported_technical_skills' => $docs['unsupported_technical_skills'] ?? [],
+            'excluded_non_technical_skills' => $docs['excluded_non_technical_skills'] ?? [],
             'trusted_documentation' => collect($docs['sections'])
                 ->map(fn (array $section) => [
                     'doc_name' => $section['doc_name'],
@@ -187,7 +196,7 @@ class InterviewQuestionGenerationService
                 ->all(),
         ];
 
-        return 'You generate interview questions for a career platform. Use ONLY the supplied trusted DevDocs documentation for technical facts. Do not use outside knowledge. If resume/project context is used, ask about the supplied project facts only and do not invent details.
+        return 'You generate interview questions for a career platform. DevDocs is the primary knowledge source. For covered_skills, use ONLY the supplied trusted DevDocs documentation and do not use outside knowledge. For unsupported_technical_skills only, you may use standard AI technical knowledge. If resume/project context is used, ask about the supplied project facts only and do not invent details.
 
 Return ONLY valid JSON in this exact shape:
 {
@@ -221,8 +230,10 @@ Rules:
 - You may include at most 2 resume_context questions, and their source must be "resume_context".
 - For source "devdocs", use only covered_skills and only facts directly supported by the cited source_reference.
 - source_reference must exactly match one of the trusted_documentation source_reference values.
-- Do not create technical questions for uncovered_skills.
-- Keep skill coverage balanced across covered_skills. Avoid more than 6 devdocs questions for one skill unless only one skill is covered.
+- For source "ai_knowledge", use only unsupported_technical_skills, set source_doc to "AI Knowledge", and set source_reference to null.
+- Never use source "ai_knowledge" for a covered_skills item.
+- Do not create technical questions for excluded_non_technical_skills.
+- Keep skill coverage balanced across covered_skills and unsupported_technical_skills. Avoid more than 6 technical questions for one skill unless only one skill is available.
 - Laravel questions must cite Laravel documentation only. Do not cite PHP documentation for Laravel framework behavior.
 - REST API questions must cite HTTP documentation only.
 - Git questions must be practical workflow questions, not obscure internals, unless the job explicitly asks for internals.
@@ -241,6 +252,7 @@ Input:
                 'level' => $context['job_level'] ?? null,
             ],
             'covered_skills' => $docs['covered_skills'] ?? [],
+            'unsupported_technical_skills' => $docs['unsupported_technical_skills'] ?? [],
             'docs' => collect($docs['sections'])
                 ->map(fn (array $section) => [
                     'skill' => $section['skill'],
@@ -254,33 +266,38 @@ Input:
         ];
 
         return 'Return JSON only. No markdown.
-Schema: {"questions":[{"id":1,"question":"text","options":{"A":"text","B":"text","C":"text","D":"text"},"correct_answer":"A","difficulty":"easy|medium|hard","skill":"one covered skill","source":"devdocs","source_doc":"doc_name","source_reference":"source_reference"}]}
-Rules: exactly ' . $targetQuestions . ' questions; four options A-D; correct_answer A/B/C/D; source_reference must exactly equal one supplied docs source_reference; use only supplied docs; avoid duplicates and avoid_previous_questions when possible; keep skill coverage balanced; prefer grounded valid questions over novelty.
+Schema: {"questions":[{"id":1,"question":"text","options":{"A":"text","B":"text","C":"text","D":"text"},"correct_answer":"A","difficulty":"easy|medium|hard","skill":"covered or unsupported skill","source":"devdocs|ai_knowledge","source_doc":"doc_name or AI Knowledge","source_reference":"source_reference or null"}]}
+Rules: exactly ' . $targetQuestions . ' questions; four options A-D; correct_answer A/B/C/D; devdocs source_reference must exactly equal one supplied docs source_reference; source ai_knowledge may use only unsupported_technical_skills and source_reference must be null; avoid duplicates and avoid_previous_questions when possible; keep skill coverage balanced; prefer grounded DevDocs questions for covered skills.
 Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
     private function generateJsonWithFallback(string $prompt, array $context, array $docs, int $targetQuestions, array $avoidQuestions = []): string
     {
-        if ($this->lastGenerationStats['groq_disabled_for_request'] ?? false) {
-            return $this->callGeminiFallback(
+        $primary = $this->primaryProvider();
+        $secondary = $this->secondaryProvider($primary);
+
+        if ($primary === 'groq' && ($this->lastGenerationStats['groq_disabled_for_request'] ?? false)) {
+            return $this->callProviderFallback(
                 $prompt,
                 $context,
                 $docs,
                 $targetQuestions,
                 $avoidQuestions,
                 new RuntimeException('Groq is disabled for this request after rate limit.'),
+                $primary,
+                $secondary,
                 false
             );
         }
 
         try {
-            return $this->ensureQuestionsJson($this->callProviderJson('groq', $prompt, $targetQuestions));
+            return $this->ensureQuestionsJson($this->callProviderJson($primary, $prompt, $targetQuestions));
         } catch (Throwable $exception) {
-            $this->recordProviderFailure('groq', $exception);
+            $this->recordProviderFailure($primary, $exception);
 
             if (!$this->isJsonValidationFailure($exception)) {
-                if ($this->shouldFallbackToGemini($exception)) {
-                    return $this->callGeminiFallback($prompt, $context, $docs, $targetQuestions, $avoidQuestions, $exception);
+                if ($this->shouldFallbackToSecondary($exception)) {
+                    return $this->callProviderFallback($prompt, $context, $docs, $targetQuestions, $avoidQuestions, $exception, $primary, $secondary);
                 }
 
                 throw $exception;
@@ -291,12 +308,12 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             $fallbackPrompt = $this->simpleJsonPrompt($context, $docs, $targetQuestions, $avoidQuestions);
 
             try {
-                return $this->ensureQuestionsJson($this->callProviderJson('groq', $fallbackPrompt, $targetQuestions));
+                return $this->ensureQuestionsJson($this->callProviderJson($primary, $fallbackPrompt, $targetQuestions));
             } catch (Throwable $fallbackException) {
-                $this->recordProviderFailure('groq', $fallbackException);
+                $this->recordProviderFailure($primary, $fallbackException);
 
-                if ($this->shouldFallbackToGemini($fallbackException)) {
-                    return $this->callGeminiFallback($fallbackPrompt, $context, $docs, $targetQuestions, $avoidQuestions, $fallbackException, true);
+                if ($this->shouldFallbackToSecondary($fallbackException)) {
+                    return $this->callProviderFallback($fallbackPrompt, $context, $docs, $targetQuestions, $avoidQuestions, $fallbackException, $primary, $secondary, true);
                 }
 
                 throw $fallbackException;
@@ -323,13 +340,15 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         return $raw;
     }
 
-    private function callGeminiFallback(
+    private function callProviderFallback(
         string $prompt,
         array $context,
         array $docs,
         int $targetQuestions,
         array $avoidQuestions,
-        Throwable $groqException,
+        Throwable $primaryException,
+        string $primaryProvider,
+        string $fallbackProvider,
         bool $promptIsSimple = false
     ): string
     {
@@ -337,24 +356,24 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         $this->lastGenerationStats['fallback_used'] = true;
 
         Log::warning('Interview AI provider fallback selected.', [
-            'primary_provider' => 'groq',
-            'fallback_provider' => 'gemini',
-            'groq_failure_category' => $this->failureCategory($groqException),
+            'primary_provider' => $primaryProvider,
+            'fallback_provider' => $fallbackProvider,
+            'failure_category' => $this->failureCategory($primaryException),
         ]);
 
         try {
-            return $this->ensureQuestionsJson($this->callProviderJson('gemini', $prompt, $targetQuestions));
+            return $this->ensureQuestionsJson($this->callProviderJson($fallbackProvider, $prompt, $targetQuestions));
         } catch (Throwable $exception) {
-            $this->recordProviderFailure('gemini', $exception);
+            $this->recordProviderFailure($fallbackProvider, $exception);
 
             if (!$promptIsSimple && $this->isJsonValidationFailure($exception)) {
                 $this->lastGenerationStats['json_fallback_used'] = true;
                 $fallbackPrompt = $this->simpleJsonPrompt($context, $docs, $targetQuestions, $avoidQuestions);
 
                 try {
-                    return $this->ensureQuestionsJson($this->callProviderJson('gemini', $fallbackPrompt, $targetQuestions));
+                    return $this->ensureQuestionsJson($this->callProviderJson($fallbackProvider, $fallbackPrompt, $targetQuestions));
                 } catch (Throwable $fallbackException) {
-                    $this->recordProviderFailure('gemini', $fallbackException);
+                    $this->recordProviderFailure($fallbackProvider, $fallbackException);
 
                     throw $fallbackException;
                 }
@@ -656,14 +675,14 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         $validQuestions = $this->repairSkillCoverage($validQuestions, $context, $docs, $avoidQuestions);
         $final = $this->selectBalancedQuestions($validQuestions, $docs);
         $this->lastGenerationStats['topic_diversity'] = $this->topicDistribution($final);
-        $this->validateBalancedCoverage($final, collect($docs['covered_skills'] ?? [])->all());
+        $this->validateBalancedCoverage($final, $this->quizSkills($docs)->all());
 
         return $final;
     }
 
     private function trimOverrepresentedSkills(array $questions, array $docs): array
     {
-        $coveredSkills = collect($docs['covered_skills'] ?? [])->unique()->values();
+        $coveredSkills = $this->quizSkills($docs);
 
         if ($coveredSkills->count() <= 1 || count($questions) < self::TOTAL_QUESTIONS) {
             return $questions;
@@ -782,7 +801,7 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
 
     private function targetSkillCounts(array $docs): array
     {
-        $skills = collect($docs['covered_skills'] ?? [])->unique()->values();
+        $skills = $this->quizSkills($docs);
 
         if ($skills->count() <= 1) {
             return [];
@@ -826,7 +845,7 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
     private function missingSkillCounts(array $questions, array $targets): array
     {
         $counts = collect($questions)
-            ->where('source', 'devdocs')
+            ->reject(fn (array $question) => ($question['source'] ?? '') === 'resume_context')
             ->countBy(fn (array $question) => $this->normalizeSkill((string) $question['skill']));
 
         return collect($targets)
@@ -863,7 +882,13 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             ->values()
             ->all();
         $coveredSkills = collect($docs['covered_skills'] ?? [])->values();
-        $relevantSkills = collect($docs['relevant_technical_skills'] ?? [])->merge($coveredSkills)->unique()->values();
+        $unsupportedSkills = collect($docs['unsupported_technical_skills'] ?? [])->values();
+        $excludedNonTechnicalSkills = collect($docs['excluded_non_technical_skills'] ?? [])->values();
+        $relevantSkills = collect($docs['relevant_technical_skills'] ?? [])
+            ->merge($coveredSkills)
+            ->merge($unsupportedSkills)
+            ->unique()
+            ->values();
         $referenceMap = collect($docs['sections'] ?? [])->keyBy('source_reference');
 
         foreach (array_values($questions) as $index => $question) {
@@ -874,7 +899,9 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
                     $seen,
                     $coveredSkills,
                     $relevantSkills,
-                    $referenceMap
+                    $referenceMap,
+                    $unsupportedSkills,
+                    $excludedNonTechnicalSkills
                 );
 
                 $semanticProfile = $this->semanticQuestionProfile($normalizedQuestion);
@@ -915,7 +942,9 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         array $seen,
         $coveredSkills,
         $relevantSkills,
-        $referenceMap
+        $referenceMap,
+        $unsupportedSkills,
+        $excludedNonTechnicalSkills
     ): array {
         if (!is_array($question)) {
             throw new RuntimeException('AI response contains an invalid question item.');
@@ -928,7 +957,9 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         $source = trim((string) ($question['source'] ?? 'devdocs'));
         $skill = trim((string) ($question['skill'] ?? 'General'));
         $sourceDoc = trim((string) ($question['source_doc'] ?? 'DevDocs'));
-        $sourceReference = trim((string) ($question['source_reference'] ?? 'https://devdocs.io'));
+        $sourceReference = array_key_exists('source_reference', $question)
+            ? trim((string) $question['source_reference'])
+            : '';
 
         if ($text === '' || !is_array($options) || !in_array($answer, ['A', 'B', 'C', 'D'], true)) {
             throw new RuntimeException('AI response contains an incomplete question.');
@@ -938,6 +969,19 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             if (!isset($options[$optionKey]) || trim((string) $options[$optionKey]) === '') {
                 throw new RuntimeException('AI response contains incomplete answer options.');
             }
+        }
+
+        if (collect(array_keys($options))->map(fn ($key) => strtoupper((string) $key))->sort()->values()->all() !== ['A', 'B', 'C', 'D']) {
+            throw new RuntimeException('AI response contains unexpected answer options.');
+        }
+
+        $optionTexts = collect(['A', 'B', 'C', 'D'])
+            ->map(fn (string $key) => $this->questionFingerprint((string) $options[$key]))
+            ->filter()
+            ->values();
+
+        if ($optionTexts->unique()->count() !== 4) {
+            throw new RuntimeException('AI response contains duplicate answer options.');
         }
 
         $fingerprint = $this->questionFingerprint($text);
@@ -952,7 +996,29 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         if ($source === 'resume_context') {
             $sourceReference = '';
             $sourceDoc = 'Resume Context';
+        } elseif ($source === 'ai_knowledge') {
+            if ($sourceReference !== '') {
+                throw new RuntimeException('AI knowledge question must not include a DevDocs source reference.');
+            }
+
+            if ($coveredSkills->contains(fn (string $covered) => $this->sameSkill($skill, $covered))) {
+                throw new RuntimeException('AI knowledge question used a DevDocs-covered skill.');
+            }
+
+            if (!$unsupportedSkills->contains(fn (string $unsupported) => $this->sameSkill($skill, $unsupported))) {
+                throw new RuntimeException('AI knowledge question used a skill outside unsupported technical job skills.');
+            }
+
+            if ($excludedNonTechnicalSkills->contains(fn (string $excluded) => $this->sameSkill($skill, $excluded))) {
+                throw new RuntimeException('AI knowledge question used an excluded non-technical skill.');
+            }
+
+            $sourceDoc = 'AI Knowledge';
         } else {
+            if ($source !== 'devdocs') {
+                throw new RuntimeException('AI response contains an invalid question source.');
+            }
+
             $source = 'devdocs';
             $section = $referenceMap->get($sourceReference);
 
@@ -1040,7 +1106,7 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
                 ->all();
         }
 
-        $coveredSkills = collect($docs['covered_skills'] ?? [])->values();
+        $coveredSkills = $this->quizSkills($docs);
         $selected = collect();
         $targetPerSkill = max(1, (int) floor(self::TOTAL_QUESTIONS / max(1, $coveredSkills->count())));
 
@@ -1075,7 +1141,7 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
 
     private function skillsNeedingQuestions(array $questions, array $docs, int $needed): array
     {
-        $coveredSkills = collect($docs['covered_skills'] ?? [])->values();
+        $coveredSkills = $this->quizSkills($docs);
         if ($coveredSkills->isEmpty()) {
             return [];
         }
@@ -1447,15 +1513,26 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             || str_contains(Str::lower($exception->getMessage()), 'rate limit');
     }
 
-    private function shouldFallbackToGemini(Throwable $exception): bool
+    private function shouldFallbackToSecondary(Throwable $exception): bool
     {
         return in_array($this->failureCategory($exception), [
             'rate_limit',
             'timeout',
             'provider_unavailable',
+            'provider_generation',
             'network',
             'json_validation',
         ], true);
+    }
+
+    private function primaryProvider(): string
+    {
+        return config('services.ai_provider', 'groq') === 'gemini' ? 'gemini' : 'groq';
+    }
+
+    private function secondaryProvider(string $primaryProvider): string
+    {
+        return $primaryProvider === 'gemini' ? 'groq' : 'gemini';
     }
 
     private function recordProviderFailure(string $provider, Throwable $exception): void
@@ -1487,6 +1564,10 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             return 'timeout';
         }
 
+        if ($this->isStructuredOutputGenerationFailure($exception)) {
+            return 'provider_generation';
+        }
+
         if ($this->isJsonValidationFailure($exception) || str_contains($message, 'not valid json')) {
             return 'json_validation';
         }
@@ -1509,6 +1590,16 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             || str_contains(Str::lower($exception->getMessage()), 'not valid json');
     }
 
+    private function isStructuredOutputGenerationFailure(Throwable $exception): bool
+    {
+        $message = Str::lower($exception->getMessage());
+
+        return str_contains($message, 'failed to generate json')
+            || str_contains($message, 'failed_generation')
+            || str_contains($message, 'structured output generation failure')
+            || str_contains($message, 'response format generation failure');
+    }
+
     private function backoffForRateLimit(Throwable $exception): void
     {
         if (app()->environment('testing')) {
@@ -1528,26 +1619,36 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
     private function validateBalancedCoverage(array $questions, array $coveredSkills): void
     {
         $skills = collect($coveredSkills)->unique()->values();
-        $devdocsQuestions = collect($questions)->where('source', 'devdocs');
+        $technicalQuestions = collect($questions)
+            ->reject(fn (array $question) => ($question['source'] ?? '') === 'resume_context');
 
-        if ($skills->count() <= 1 || $devdocsQuestions->count() < $skills->count() * 2) {
+        if ($skills->count() <= 1 || $technicalQuestions->count() < $skills->count() * 2) {
             return;
         }
 
-        $counts = $devdocsQuestions->countBy(fn (array $question) => $this->normalizeSkill((string) $question['skill']));
-        $maxAllowed = max(6, (int) ceil($devdocsQuestions->count() / $skills->count()) + 2);
+        $counts = $technicalQuestions->countBy(fn (array $question) => $this->normalizeSkill((string) $question['skill']));
+        $maxAllowed = max(6, (int) ceil($technicalQuestions->count() / $skills->count()) + 2);
 
         foreach ($skills as $skill) {
             $count = (int) ($counts[$this->normalizeSkill($skill)] ?? 0);
 
             if ($count < 2) {
-                throw new RuntimeException('AI response did not provide balanced coverage for covered skills.');
+                throw new RuntimeException('AI response did not provide balanced coverage for technical skills.');
             }
 
             if ($count > $maxAllowed) {
-                throw new RuntimeException('AI response overrepresented one covered skill.');
+                throw new RuntimeException('AI response overrepresented one technical skill.');
             }
         }
+    }
+
+    private function quizSkills(array $docs)
+    {
+        return collect($docs['covered_skills'] ?? [])
+            ->merge($docs['unsupported_technical_skills'] ?? [])
+            ->filter()
+            ->unique(fn (string $skill) => $this->normalizeSkill($skill))
+            ->values();
     }
 
     private function skillDistribution(array $questions): array

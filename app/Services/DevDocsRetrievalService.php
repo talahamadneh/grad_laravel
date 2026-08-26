@@ -31,6 +31,8 @@ class DevDocsRetrievalService
 
         $stageStartedAt = microtime(true);
         $terms = $this->searchTerms($skills, $jobTitle, $jobDescription);
+        $explicitTechnicalSkills = $this->explicitTechnicalSkills($skills);
+        $excludedNonTechnicalSkills = $this->excludedNonTechnicalSkills($skills);
         $profile = $this->retrievalProfile($skills, $jobTitle, $jobDescription, $jobLevel);
         $priorityKeywords = $this->priorityKeywords($skills, $jobTitle, $jobDescription, $profile);
         $timing['skill_detection_ms'] = $this->elapsedMs($stageStartedAt);
@@ -39,10 +41,19 @@ class DevDocsRetrievalService
         $documents = $this->documents();
         $timing['devdocs_index_loading_ms'] += $this->elapsedMs($stageStartedAt);
 
+        $devDocsSupportedExplicitSkills = $this->supportedExplicitSkills($terms, $documents);
+        $unsupportedTechnicalSkills = collect($explicitTechnicalSkills)
+            ->reject(fn (string $skill) => collect($devDocsSupportedExplicitSkills)->contains(fn (string $supportedSkill) => $this->sameSkill($supportedSkill, $skill)))
+            ->values()
+            ->all();
         $selectedDocs = $this->selectDocs($terms, $documents);
 
         if ($selectedDocs->isEmpty()) {
-            throw new RuntimeException('No supported DevDocs documentation was found for this job. Please try a role with common technical skills.');
+            if (empty($explicitTechnicalSkills)) {
+                throw new RuntimeException('No supported technical interview skills are available for this job.');
+            }
+
+            return $this->emptyResult($unsupportedTechnicalSkills, $excludedNonTechnicalSkills, $timing, $startedAt);
         }
 
         $sections = [];
@@ -67,7 +78,12 @@ class DevDocsRetrievalService
         $timing['total_devdocs_retrieval_ms'] = $this->elapsedMs($startedAt);
 
         $covered = collect($sections)->pluck('skill')->filter()->unique()->values()->all();
-        $relevantSkills = collect($terms)->pluck('skill')->unique()->values()->all();
+        $relevantSkills = collect($terms)
+            ->pluck('skill')
+            ->merge($explicitTechnicalSkills)
+            ->unique(fn (string $skill) => Str::lower($skill))
+            ->values()
+            ->all();
         $contextChars = collect($sections)->sum(fn (array $section) => strlen($section['text']));
 
         Log::info('Interview timing: DevDocs retrieval.', array_merge($timing, [
@@ -94,11 +110,33 @@ class DevDocsRetrievalService
                 ->all(),
             'covered_skills' => $covered,
             'uncovered_skills' => collect($relevantSkills)
-                ->reject(fn (string $skill) => in_array($skill, $covered, true))
+                ->reject(fn (string $skill) => collect($covered)->contains(fn (string $coveredSkill) => $this->sameSkill($coveredSkill, $skill)))
                 ->values()
                 ->all(),
+            'unsupported_technical_skills' => $unsupportedTechnicalSkills,
+            'excluded_non_technical_skills' => $excludedNonTechnicalSkills,
             'context_character_count' => $contextChars,
             'estimated_context_tokens' => $this->estimateTokens((string) collect($sections)->pluck('text')->implode("\n")),
+            'timing_ms' => $timing,
+        ];
+    }
+
+    private function emptyResult(array $unsupportedTechnicalSkills, array $excludedNonTechnicalSkills, array $timing, float $startedAt): array
+    {
+        $timing['total_devdocs_retrieval_ms'] = $this->elapsedMs($startedAt);
+
+        return [
+            'sections' => [],
+            'relevant_technical_skills' => $unsupportedTechnicalSkills,
+            'explicit_skills' => $unsupportedTechnicalSkills,
+            'detected_from_requirements' => [],
+            'retrieved_documents' => [],
+            'covered_skills' => [],
+            'uncovered_skills' => $unsupportedTechnicalSkills,
+            'unsupported_technical_skills' => $unsupportedTechnicalSkills,
+            'excluded_non_technical_skills' => $excludedNonTechnicalSkills,
+            'context_character_count' => 0,
+            'estimated_context_tokens' => 0,
             'timing_ms' => $timing,
         ];
     }
@@ -147,6 +185,17 @@ class DevDocsRetrievalService
             ->unique('slug')
             ->take($maxDocs)
             ->values();
+    }
+
+    private function supportedExplicitSkills(array $terms, Collection $documents): array
+    {
+        return collect($terms)
+            ->where('source', 'explicit')
+            ->filter(fn (array $term) => $this->findDoc($term, $documents) !== null)
+            ->pluck('skill')
+            ->unique(fn (string $skill) => $this->normalizeSkill($skill))
+            ->values()
+            ->all();
     }
 
     private function findDoc(array $term, Collection $documents): ?array
@@ -742,6 +791,65 @@ class DevDocsRetrievalService
             ->unique('skill')
             ->values()
             ->all();
+    }
+
+    private function explicitTechnicalSkills(array $skills): array
+    {
+        return collect($skills)
+            ->map(fn (string $skill) => trim($skill))
+            ->filter()
+            ->reject(fn (string $skill) => $this->isNonTechnicalSkill($skill))
+            ->unique(fn (string $skill) => Str::lower($skill))
+            ->values()
+            ->all();
+    }
+
+    private function excludedNonTechnicalSkills(array $skills): array
+    {
+        return collect($skills)
+            ->map(fn (string $skill) => trim($skill))
+            ->filter(fn (string $skill) => $skill !== '' && $this->isNonTechnicalSkill($skill))
+            ->unique(fn (string $skill) => Str::lower($skill))
+            ->values()
+            ->all();
+    }
+
+    private function isNonTechnicalSkill(string $skill): bool
+    {
+        $normalized = Str::lower(preg_replace('/[^a-z0-9]+/i', ' ', $skill) ?? $skill);
+        $normalized = trim(preg_replace('/\s+/', ' ', $normalized) ?? $normalized);
+
+        return in_array($normalized, [
+            'communication',
+            'teamwork',
+            'leadership',
+            'time management',
+            'adaptability',
+            'collaboration',
+            'interpersonal skills',
+            'presentation skills',
+            'critical thinking',
+            'problem solving',
+        ], true);
+    }
+
+    private function sameSkill(string $left, string $right): bool
+    {
+        return $this->normalizeSkill($left) === $this->normalizeSkill($right);
+    }
+
+    private function normalizeSkill(string $skill): string
+    {
+        $normalized = Str::lower(trim($skill));
+
+        return match (true) {
+            str_contains($normalized, 'rest') || str_contains($normalized, 'http') || str_contains($normalized, 'api') => 'rest apis',
+            str_contains($normalized, 'laravel') => 'laravel',
+            str_contains($normalized, 'mysql') => 'mysql',
+            str_contains($normalized, 'php') => 'php',
+            str_contains($normalized, 'git') => 'git',
+            default => preg_replace('/[^a-z0-9]+/', ' ', $normalized) ?: $normalized,
+        };
     }
 
     private function matchesAlias(string $text, string $alias): bool

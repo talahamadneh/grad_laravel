@@ -180,13 +180,162 @@ class InterviewQuestionGenerationTest extends TestCase
             ->assertJsonPath('metadata.covered_skills.0', 'JavaScript');
     }
 
-    public function test_unsupported_skills_return_clean_error_without_ai_call(): void
+    public function test_devdocs_supported_explicit_skills_are_not_unsupported_when_subset_of_docs_is_selected(): void
     {
-        [$user, $job] = $this->studentAndJob('Blockchain Intern', ['Solidity']);
-        $job->update([
-            'description' => 'Build decentralized products.',
-            'requirements' => 'Solidity',
+        config(['services.devdocs.max_docs' => 4]);
+        $this->fakeRichDevDocs();
+
+        $result = app(DevDocsRetrievalService::class)->retrieve(
+            ['Laravel', 'PHP', 'JavaScript', 'React', 'Git', 'REST APIs', 'HTML', 'CSS'],
+            'Frontend Full Stack Developer',
+            'Laravel PHP JavaScript React Git REST APIs HTML CSS'
+        );
+
+        $this->assertSame([], $result['unsupported_technical_skills']);
+        $this->assertLessThan(8, count($result['covered_skills']));
+        $this->assertContains('Laravel', $result['covered_skills']);
+    }
+
+    public function test_job_22_supported_skills_do_not_generate_ai_knowledge_questions(): void
+    {
+        config(['services.devdocs.max_docs' => 4]);
+        [$user, $job] = $this->studentAndJob('Job 22 Full Stack Developer', [
+            'Laravel',
+            'PHP',
+            'JavaScript',
+            'React',
+            'Git',
+            'REST APIs',
+            'HTML',
+            'CSS',
         ]);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response(array_merge($this->docsJson(), [
+                ['name' => 'Laravel', 'slug' => 'laravel~11', 'type' => 'laravel'],
+            ]), 200),
+            'https://documents.devdocs.io/laravel~11/index.json' => Http::response([
+                'entries' => [
+                    ['name' => 'HTTP Requests', 'path' => 'docs/11.x/requests', 'type' => 'Guides: The Basics'],
+                    ['name' => 'Validation', 'path' => 'docs/11.x/validation', 'type' => 'Guides: The Basics'],
+                ],
+            ], 200),
+            'https://documents.devdocs.io/laravel~11/db.json' => Http::response([
+                'docs/11.x/requests' => '<h1>HTTP Requests</h1><p>Laravel requests provide input access and request data handling.</p>',
+                'docs/11.x/validation' => '<h1>Validation</h1><p>Laravel validates incoming request data using validation rules.</p>',
+            ], 200),
+            'https://documents.devdocs.io/javascript/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/javascript/db.json' => Http::response($this->dbJson(), 200),
+            'https://documents.devdocs.io/html/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/html/db.json' => Http::response($this->dbJson(), 200),
+            'https://documents.devdocs.io/css/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/css/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => fn ($request) => Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonCount(20, 'questions')
+            ->assertJsonPath('metadata.unsupported_technical_skills', []);
+
+        $storedQuestions = collect(InterviewQuizAttempt::findOrFail($response->json('attempt_id'))->questions);
+        $this->assertFalse($storedQuestions->contains(fn (array $question) => $question['source'] === 'ai_knowledge'));
+        $this->assertSame(['devdocs'], $storedQuestions->pluck('source')->unique()->values()->all());
+    }
+
+    public function test_unsupported_java_only_generates_ai_knowledge_questions(): void
+    {
+        [$user, $job] = $this->studentAndJob('Java Developer', ['Java']);
+        $job->update([
+            'description' => 'Build backend services.',
+            'requirements' => 'Java',
+        ]);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://api.groq.com/*' => fn ($request) => Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonCount(20, 'questions')
+            ->assertJsonPath('metadata.unsupported_technical_skills.0', 'Java')
+            ->assertJsonPath('metadata.generation_sources.0', 'ai_knowledge');
+
+        $storedQuestions = collect(InterviewQuizAttempt::findOrFail($response->json('attempt_id'))->questions);
+        $this->assertTrue($storedQuestions->every(fn (array $question) => $question['source'] === 'ai_knowledge'));
+        $this->assertTrue($storedQuestions->every(fn (array $question) => $question['source_reference'] === null || $question['source_reference'] === ''));
+    }
+
+    public function test_java_and_aws_remain_ai_knowledge_only(): void
+    {
+        [$user, $job] = $this->studentAndJob('Java Cloud Developer', ['Java', 'AWS']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://api.groq.com/*' => fn ($request) => Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonCount(20, 'questions');
+
+        $this->assertEqualsCanonicalizing(['Java', 'AWS'], $response->json('metadata.unsupported_technical_skills'));
+
+        $storedQuestions = collect(InterviewQuizAttempt::findOrFail($response->json('attempt_id'))->questions);
+        $this->assertTrue($storedQuestions->every(fn (array $question) => $question['source'] === 'ai_knowledge'));
+        $this->assertEqualsCanonicalizing(['Java', 'AWS'], $storedQuestions->pluck('skill')->unique()->values()->all());
+    }
+
+    public function test_mixed_laravel_and_java_generates_devdocs_and_ai_knowledge_questions(): void
+    {
+        [$user, $job] = $this->studentAndJob('Full Stack Developer', ['Laravel', 'Java']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response(array_merge($this->docsJson(), [
+                ['name' => 'Laravel', 'slug' => 'laravel', 'type' => 'laravel'],
+            ]), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => fn ($request) => Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonCount(20, 'questions');
+
+        $storedQuestions = collect(InterviewQuizAttempt::findOrFail($response->json('attempt_id'))->questions);
+        $this->assertTrue($storedQuestions->contains(fn (array $question) => $question['skill'] === 'Laravel' && $question['source'] === 'devdocs'));
+        $this->assertTrue($storedQuestions->contains(fn (array $question) => $question['skill'] === 'Java' && $question['source'] === 'ai_knowledge'));
+        $this->assertContains('devdocs', $response->json('metadata.generation_sources'));
+        $this->assertContains('ai_knowledge', $response->json('metadata.generation_sources'));
+    }
+
+    public function test_communication_is_excluded_and_not_generated_as_ai_knowledge(): void
+    {
+        [$user, $job] = $this->studentAndJob('Java Developer', ['Java', 'Communication']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://api.groq.com/*' => fn ($request) => Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.excluded_non_technical_skills.0', 'Communication');
+
+        $storedQuestions = collect(InterviewQuizAttempt::findOrFail($response->json('attempt_id'))->questions);
+        $this->assertFalse($storedQuestions->contains(fn (array $question) => $question['skill'] === 'Communication'));
+    }
+
+    public function test_soft_skills_only_returns_clean_no_technical_skills_error_without_ai_call(): void
+    {
+        [$user, $job] = $this->studentAndJob('Team Coordinator', ['Communication', 'Teamwork']);
 
         Http::fake([
             'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
@@ -196,9 +345,58 @@ class InterviewQuestionGenerationTest extends TestCase
         $this->actingAs($user)
             ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
             ->assertStatus(503)
-            ->assertJsonPath('message', 'No supported DevDocs documentation was found for this job. Please try a role with common technical skills.');
+            ->assertJsonPath('message', 'No supported technical interview skills are available for this job.');
 
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'api.groq.com'));
+    }
+
+    public function test_ai_knowledge_for_devdocs_covered_skill_is_rejected(): void
+    {
+        [$user, $job] = $this->studentAndJob('Laravel Developer', ['Laravel']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response(array_merge($this->docsJson(), [
+                ['name' => 'Laravel', 'slug' => 'laravel', 'type' => 'laravel'],
+            ]), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => Http::response($this->aiKnowledgeResponseForSkill('Laravel'), 200),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'Interview question generation is temporarily unavailable. Please try again.');
+    }
+
+    public function test_ai_knowledge_with_fake_devdocs_source_reference_is_rejected(): void
+    {
+        [$user, $job] = $this->studentAndJob('Java Developer', ['Java']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://api.groq.com/*' => Http::response($this->aiKnowledgeResponseForSkill('Java', 'https://devdocs.io/java/fake'), 200),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'Interview question generation is temporarily unavailable. Please try again.');
+    }
+
+    public function test_ai_knowledge_for_skill_not_in_explicit_job_skills_is_rejected(): void
+    {
+        [$user, $job] = $this->studentAndJob('Java Developer', ['Java']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://api.groq.com/*' => Http::response($this->aiKnowledgeResponseForSkill('AWS'), 200),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'Interview question generation is temporarily unavailable. Please try again.');
     }
 
     public function test_devdocs_timeout_returns_clean_error_without_ai_call(): void
@@ -988,6 +1186,169 @@ class InterviewQuestionGenerationTest extends TestCase
             ->assertJsonPath('metadata.generation_stats.groq_failure_category', 'timeout');
     }
 
+    public function test_groq_first_key_rate_limit_tries_second_key_successfully(): void
+    {
+        config(['services.groq.keys' => ['first-groq-key', 'second-groq-key']]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+        $groqCalls = 0;
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => function ($request) use (&$groqCalls) {
+                $groqCalls++;
+
+                if ($groqCalls === 1) {
+                    $this->assertSame('Bearer first-groq-key', $request->header('Authorization')[0] ?? null);
+
+                    return Http::response(['error' => ['message' => 'Rate limit reached.']], 429);
+                }
+
+                $this->assertSame('Bearer second-groq-key', $request->header('Authorization')[0] ?? null);
+
+                return Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200);
+            },
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.ai_provider_used', 'groq')
+            ->assertJsonPath('metadata.fallback_used', false);
+
+        $this->assertSame(2, $groqCalls);
+    }
+
+    public function test_groq_first_key_network_timeout_tries_second_key_successfully(): void
+    {
+        config(['services.groq.keys' => ['first-groq-key', 'second-groq-key']]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+        $groqCalls = 0;
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => function ($request) use (&$groqCalls) {
+                $groqCalls++;
+
+                if ($groqCalls === 1) {
+                    throw new ConnectionException('timeout');
+                }
+
+                $this->assertSame('Bearer second-groq-key', $request->header('Authorization')[0] ?? null);
+
+                return Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200);
+            },
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.ai_provider_used', 'groq')
+            ->assertJsonPath('metadata.fallback_used', false);
+
+        $this->assertSame(2, $groqCalls);
+    }
+
+    public function test_groq_first_key_failed_generation_tries_second_key_successfully(): void
+    {
+        config(['services.groq.keys' => ['first-groq-key', 'second-groq-key']]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+        $groqCalls = 0;
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => function ($request) use (&$groqCalls) {
+                $groqCalls++;
+
+                if ($groqCalls === 1) {
+                    $this->assertSame('Bearer first-groq-key', $request->header('Authorization')[0] ?? null);
+
+                    return Http::response([
+                        'error' => [
+                            'message' => "Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
+                            'code' => 'failed_generation',
+                        ],
+                    ], 400);
+                }
+
+                $this->assertSame('Bearer second-groq-key', $request->header('Authorization')[0] ?? null);
+
+                return Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200);
+            },
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.ai_provider_used', 'groq')
+            ->assertJsonPath('metadata.fallback_used', false);
+
+        $this->assertSame(2, $groqCalls);
+    }
+
+    public function test_all_groq_failed_generation_keys_fall_back_to_gemini_successfully(): void
+    {
+        config([
+            'services.groq.keys' => ['first-groq-key', 'second-groq-key'],
+            'services.gemini.keys' => ['test-gemini-key'],
+        ]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+        $groqCalls = 0;
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => function () use (&$groqCalls) {
+                $groqCalls++;
+
+                return Http::response([
+                    'error' => [
+                        'message' => "Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
+                        'code' => 'failed_generation',
+                    ],
+                ], 400);
+            },
+            'https://generativelanguage.googleapis.com/*' => fn ($request) => Http::response($this->geminiResponseFromPrompt($this->geminiPrompt($request)), 200),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.ai_provider_used', 'gemini')
+            ->assertJsonPath('metadata.fallback_used', true)
+            ->assertJsonPath('metadata.generation_stats.groq_failure_category', 'provider_generation');
+
+        $this->assertSame(2, $groqCalls);
+    }
+
+    public function test_malformed_successful_groq_response_is_still_rejected(): void
+    {
+        config(['services.gemini.keys' => []]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://api.groq.com/*' => Http::response([
+                'choices' => [
+                    ['message' => ['content' => 'not json']],
+                ],
+            ], 200),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'Interview question generation is temporarily unavailable. Please try again.');
+    }
+
     public function test_groq_json_fallback_exhausted_falls_back_to_gemini(): void
     {
         config(['services.gemini.keys' => ['test-gemini-key']]);
@@ -1071,6 +1432,130 @@ class InterviewQuestionGenerationTest extends TestCase
         $this->assertSame('gemini', $response->json('metadata.ai_provider_used'));
         $this->assertTrue($storedQuestions->every(fn (array $question) => str_starts_with($question['source_reference'], 'https://devdocs.io/')));
         $this->assertLessThanOrEqual(8, $answerDistribution->max());
+    }
+
+    public function test_gemini_primary_first_key_rate_limit_tries_second_key_successfully(): void
+    {
+        config([
+            'services.ai_provider' => 'gemini',
+            'services.gemini.keys' => ['first-gemini-key', 'second-gemini-key'],
+        ]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+        $geminiCalls = 0;
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://generativelanguage.googleapis.com/*' => function ($request) use (&$geminiCalls) {
+                $geminiCalls++;
+
+                if ($geminiCalls === 1) {
+                    $this->assertStringContainsString('key=first-gemini-key', $request->url());
+
+                    return Http::response(['error' => ['message' => 'Rate limit reached.']], 429);
+                }
+
+                $this->assertStringContainsString('key=second-gemini-key', $request->url());
+
+                return Http::response($this->geminiResponseFromPrompt($this->geminiPrompt($request)), 200);
+            },
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.ai_provider_used', 'gemini')
+            ->assertJsonPath('metadata.fallback_used', false);
+
+        $this->assertSame(2, $geminiCalls);
+    }
+
+    public function test_gemini_primary_first_key_network_timeout_tries_second_key_successfully(): void
+    {
+        config([
+            'services.ai_provider' => 'gemini',
+            'services.gemini.keys' => ['first-gemini-key', 'second-gemini-key'],
+        ]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+        $geminiCalls = 0;
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://generativelanguage.googleapis.com/*' => function ($request) use (&$geminiCalls) {
+                $geminiCalls++;
+
+                if ($geminiCalls === 1) {
+                    throw new ConnectionException('timeout');
+                }
+
+                $this->assertStringContainsString('key=second-gemini-key', $request->url());
+
+                return Http::response($this->geminiResponseFromPrompt($this->geminiPrompt($request)), 200);
+            },
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.ai_provider_used', 'gemini')
+            ->assertJsonPath('metadata.fallback_used', false);
+
+        $this->assertSame(2, $geminiCalls);
+    }
+
+    public function test_gemini_primary_all_keys_fail_falls_back_to_groq(): void
+    {
+        config([
+            'services.ai_provider' => 'gemini',
+            'services.gemini.keys' => ['first-gemini-key', 'second-gemini-key'],
+            'services.groq.keys' => ['fallback-groq-key'],
+        ]);
+        [$user, $job] = $this->studentAndJob('Frontend Developer', ['JavaScript']);
+
+        Http::fake([
+            'https://devdocs.io/docs.json' => Http::response($this->docsJson(), 200),
+            'https://documents.devdocs.io/*/index.json' => Http::response($this->indexJson(), 200),
+            'https://documents.devdocs.io/*/db.json' => Http::response($this->dbJson(), 200),
+            'https://generativelanguage.googleapis.com/*' => Http::response(['error' => ['message' => 'Service unavailable']], 503),
+            'https://api.groq.com/*' => fn ($request) => Http::response($this->aiResponseFromPrompt($request->data()['messages'][0]['content'] ?? ''), 200),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/ai/interview/questions', ['job_id' => $job->id])
+            ->assertOk()
+            ->assertJsonPath('metadata.ai_provider_used', 'groq')
+            ->assertJsonPath('metadata.fallback_used', true)
+            ->assertJsonPath('metadata.generation_stats.gemini_failure_category', 'provider_unavailable');
+    }
+
+    public function test_provider_errors_do_not_expose_configured_api_keys(): void
+    {
+        config([
+            'services.groq.keys' => ['secret-groq-key'],
+            'services.gemini.keys' => ['secret-gemini-key'],
+        ]);
+
+        Http::fake([
+            'https://api.groq.com/*' => Http::response(['error' => ['message' => 'bad secret-groq-key']], 400),
+            'https://generativelanguage.googleapis.com/*' => fn () => throw new ConnectionException('failed for key=secret-gemini-key'),
+        ]);
+
+        try {
+            app(\App\Services\GroqService::class)->generateJson('prompt');
+            $this->fail('Expected Groq exception.');
+        } catch (\Exception $exception) {
+            $this->assertStringNotContainsString('secret-groq-key', $exception->getMessage());
+        }
+
+        try {
+            app(\App\Services\GeminiService::class)->generateJson('prompt');
+            $this->fail('Expected Gemini exception.');
+        } catch (\Exception $exception) {
+            $this->assertStringNotContainsString('secret-gemini-key', $exception->getMessage());
+        }
     }
 
     public function test_retake_works_using_gemini_fallback_and_creates_new_attempt(): void
@@ -1909,34 +2394,77 @@ class InterviewQuestionGenerationTest extends TestCase
         return ['choices' => [['message' => ['content' => json_encode(['questions' => $questions])]]]];
     }
 
+    private function aiKnowledgeResponseForSkill(string $skill, ?string $sourceReference = null, int $count = 20): array
+    {
+        $questions = [];
+
+        for ($i = 1; $i <= $count; $i++) {
+            $questions[] = [
+                'id' => $i,
+                'question' => "What practical {$skill} concept should a candidate know for item {$i}?",
+                'options' => [
+                    'A' => "Correct {$skill} concept {$i}",
+                    'B' => "Distractor B {$i}",
+                    'C' => "Distractor C {$i}",
+                    'D' => "Distractor D {$i}",
+                ],
+                'correct_answer' => 'A',
+                'difficulty' => $i <= 7 ? 'easy' : ($i <= 16 ? 'medium' : 'hard'),
+                'skill' => $skill,
+                'source' => 'ai_knowledge',
+                'source_doc' => 'AI Knowledge',
+                'source_reference' => $sourceReference,
+            ];
+        }
+
+        return ['choices' => [['message' => ['content' => json_encode(['questions' => $questions])]]]];
+    }
+
     private function aiResponseFromPrompt(string $prompt, int $count = 20): array
     {
         $docs = $this->trustedDocsFromPrompt($prompt);
+        $unsupportedSkills = $this->unsupportedSkillsFromPrompt($prompt);
         $offset = $this->avoidMaxNumberFromPrompt($prompt);
 
-        if (empty($docs)) {
+        if (empty($docs) && empty($unsupportedSkills)) {
             return $this->aiResponse($count);
         }
 
+        $sources = collect($docs)
+            ->map(fn (array $doc) => [
+                'kind' => 'devdocs',
+                'skill' => $doc['skill'],
+                'doc_name' => $doc['doc_name'],
+                'source_reference' => $doc['source_reference'],
+            ])
+            ->merge(collect($unsupportedSkills)->map(fn (string $skill) => [
+                'kind' => 'ai_knowledge',
+                'skill' => $skill,
+                'doc_name' => 'AI Knowledge',
+                'source_reference' => null,
+            ]))
+            ->values()
+            ->all();
+
         $questions = [];
         for ($i = 1; $i <= $count; $i++) {
-            $doc = $docs[($i - 1) % count($docs)];
+            $source = $sources[($i - 1) % count($sources)];
             $number = $offset + $i;
             $questions[] = [
                 'id' => $i,
-                'question' => "What practical concept from {$doc['skill']} documentation should a candidate know for item {$number}?",
+                'question' => "What practical concept from {$source['skill']} should a candidate know for item {$number}?",
                 'options' => [
-                    'A' => "Supported {$doc['skill']} concept {$number}",
+                    'A' => "Supported {$source['skill']} concept {$number}",
                     'B' => "Unrelated distractor {$number}",
                     'C' => "Incorrect shortcut {$number}",
                     'D' => "Unsupported claim {$number}",
                 ],
                 'correct_answer' => 'A',
                 'difficulty' => $i <= 7 ? 'easy' : ($i <= 16 ? 'medium' : 'hard'),
-                'skill' => $doc['skill'],
-                'source' => 'devdocs',
-                'source_doc' => $doc['doc_name'],
-                'source_reference' => $doc['source_reference'],
+                'skill' => $source['skill'],
+                'source' => $source['kind'],
+                'source_doc' => $source['doc_name'],
+                'source_reference' => $source['source_reference'],
             ];
         }
 
@@ -1959,6 +2487,31 @@ class InterviewQuestionGenerationTest extends TestCase
         $payload = json_decode($json, true);
 
         return $payload['trusted_documentation'] ?? $payload['docs'] ?? [];
+    }
+
+    private function unsupportedSkillsFromPrompt(string $prompt): array
+    {
+        $payload = $this->payloadFromPrompt($prompt);
+
+        return $payload['unsupported_technical_skills'] ?? [];
+    }
+
+    private function payloadFromPrompt(string $prompt): array
+    {
+        $inputPosition = strpos($prompt, 'Input:');
+        if ($inputPosition === false) {
+            return [];
+        }
+
+        $json = trim(substr($prompt, $inputPosition + strlen('Input:')));
+        $correctivePosition = strpos($json, "\n\nCorrective generation only.");
+        if ($correctivePosition !== false) {
+            $json = trim(substr($json, 0, $correctivePosition));
+        }
+
+        $payload = json_decode($json, true);
+
+        return is_array($payload) ? $payload : [];
     }
 
     private function geminiPrompt($request): string
