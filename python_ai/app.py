@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from analyzer.cv_analyzer import analyze_cv
+from candidate_summary import generate_candidate_summary
 from matching.job_matcher import match_job
 
 
@@ -27,6 +28,18 @@ class JobMatchPayload(BaseModel):
 class JobBatchMatchPayload(BaseModel):
     student: dict[str, Any] = Field(default_factory=dict)
     jobs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CandidateSummaryPayload(BaseModel):
+    job_title: str | None = None
+    match_percentage: int | float | None = None
+    matching_skills: list[Any] = Field(default_factory=list)
+    missing_skills: list[Any] = Field(default_factory=list)
+    candidate_skills: list[Any] = Field(default_factory=list)
+    professional_title: str | None = None
+    major: str | None = None
+    relevant_experience: list[Any] = Field(default_factory=list)
+    relevant_projects: list[Any] = Field(default_factory=list)
 
 
 app = FastAPI(title="Local CV Analyzer", version="1.0.0")
@@ -75,3 +88,13 @@ def match_batch(payload: JobBatchMatchPayload) -> dict[str, Any]:
         })
 
     return {"results": results}
+
+
+@app.post("/candidate-summary")
+def candidate_summary(payload: CandidateSummaryPayload) -> dict[str, str]:
+    data = payload.model_dump()
+
+    if not data.get("job_title"):
+        raise HTTPException(status_code=422, detail="Job title is required.")
+
+    return generate_candidate_summary(data)

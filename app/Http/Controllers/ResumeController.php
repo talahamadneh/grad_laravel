@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
+use App\Services\AIResumeParserService;
 use App\Models\Resume;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Http;
@@ -396,7 +397,7 @@ PROMPT;
         return trim(preg_replace('/\s+/', ' ', $text));
     }
 
-    public function uploadFile(Request $request)
+    public function uploadFile(Request $request, AIResumeParserService $resumeParser)
     {
         $student = $request->user()->student;
 
@@ -468,171 +469,28 @@ PROMPT;
                 ], 422);
             }
 
-            $prompt = <<<PROMPT
-Extract structured resume information from the following resume text.
-
-Return ONLY valid JSON.
-
-Do not invent information.
-If a field is missing, return an empty string or empty array.
-
-Use exactly this structure:
-
-{
-    "full_name": "",
-    "professional_title": "",
-    "summary": "",
-    "email": "",
-    "phone": "",
-    "location": "",
-    "linkedin": "",
-    "github": "",
-    "portfolio": "",
-    "education": [],
-    "skills": [],
-    "experience": [],
-    "projects": [],
-    "certificates": [],
-    "languages": []
-}
-
-Education items must use:
-
-{
-    "degree": "",
-    "university": "",
-    "field_of_study": "",
-    "start_date": "",
-    "end_date": ""
-}
-
-Skill items must use:
-
-{
-    "name": ""
-}
-
-Experience items must use:
-
-{
-    "title": "",
-    "company": "",
-    "start_date": "",
-    "end_date": "",
-    "description": ""
-}
-
-Project items must use:
-
-{
-    "name": "",
-    "link": "",
-    "description": ""
-}
-
-Certificate items must use:
-
-{
-    "name": "",
-    "issuer": "",
-    "year": ""
-}
-
-Language items must use:
-
-{
-    "language": "",
-    "level": ""
-}
-
-Resume text:
-
-{$text}
-PROMPT;
-
-            $response = Http::withToken(
-                config('services.groq.keys.0')
-            )
-                ->acceptJson()
-                ->timeout(90)
-                ->post(
-                    'https://api.groq.com/openai/v1/chat/completions',
-                    [
-                        'model' => config(
-                            'services.groq.model',
-                            'llama-3.3-70b-versatile'
-                        ),
-                        'messages' => [
-                            [
-                                'role' => 'system',
-                                'content' => 'You extract resume information into valid JSON. Never invent information.'
-                            ],
-                            [
-                                'role' => 'user',
-                                'content' => $prompt
-                            ]
-                        ],
-                        'temperature' => 0.1,
-                        'stream' => false,
-                        'response_format' => [
-                            'type' => 'json_object'
-                        ],
-                    ]
-                );
-
-            if (!$response->successful()) {
+            try {
+                $parsedData = $resumeParser->parse($text);
+            } catch (\UnexpectedValueException $exception) {
                 Storage::disk('public')->delete($filePath);
 
-                \Log::error('Groq Resume Parsing Error', [
-                    'status' => $response->status(),
-                    'response' => $response->json(),
-                ]);
-
-                return response()->json([
-                    'message' => 'Failed to analyze the uploaded CV.'
-                ], 500);
-            }
-
-            $content = data_get(
-                $response->json(),
-                'choices.0.message.content'
-            );
-
-            if (!$content) {
-                Storage::disk('public')->delete($filePath);
-
-                return response()->json([
-                    'message' => 'AI returned an empty response.'
-                ], 500);
-            }
-
-            $content = trim($content);
-
-            $content = preg_replace(
-                '/^```json\s*|\s*```$/i',
-                '',
-                $content
-            );
-
-            \Log::info('Groq Resume Content', [
-                'content' => $content
-            ]);
-
-            $parsedData = json_decode(
-                trim($content),
-                true
-            );
-
-            if (!is_array($parsedData)) {
-                Storage::disk('public')->delete($filePath);
-
-                \Log::error('Invalid Resume JSON', [
-                    'content' => $content
+                \Log::warning('Resume upload AI parsing returned malformed JSON', [
+                    'characters' => mb_strlen($text),
                 ]);
 
                 return response()->json([
                     'message' => 'Could not understand the uploaded CV.'
                 ], 422);
+            } catch (\RuntimeException $exception) {
+                Storage::disk('public')->delete($filePath);
+
+                \Log::warning('Resume upload AI parsing unavailable', [
+                    'characters' => mb_strlen($text),
+                ]);
+
+                return response()->json([
+                    'message' => 'Resume parsing service unavailable'
+                ], 503);
             }
 
             $resume = Resume::where(

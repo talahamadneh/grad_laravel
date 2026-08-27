@@ -10,9 +10,9 @@ use App\Models\Application;
 use App\Models\ApplicationStatusHistory;
 use App\Models\Interview;
 use Illuminate\Support\Facades\Validator;
-//use App\Services\GeminiService;
 use App\Services\AutomaticJobValidationService;
 use App\Services\JobMatchingService;
+use App\Services\LocalCandidateSummaryService;
 use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -265,6 +265,7 @@ class CompanyController extends Controller
             'department' => 'nullable|string|max:255',
             'level' => 'nullable|string|max:100',
             'work_mode' => 'nullable|string|max:100',
+            'description' => 'nullable|string|max:5000',
             'skills' => 'nullable|array',
             'skills.*' => 'string|max:100',
         ]);
@@ -287,8 +288,39 @@ class CompanyController extends Controller
             $department = $request->department ?? 'Not specified';
             $level = $request->level ?? 'Not specified';
             $workMode = $request->work_mode ?? 'Not specified';
+            $existingDescription = trim((string) $request->input('description', ''));
 
-            $prompt = <<<PROMPT
+            if ($existingDescription !== '') {
+                $prompt = <<<PROMPT
+Improve and rewrite the existing job description professionally.
+
+Use the structured job data only as context. Preserve all facts from the existing description.
+Do not invent requirements, benefits, responsibilities, salary, technologies, company information, or any other details.
+
+Structured job data:
+Job Title: {$request->title}
+Department: {$department}
+Level: {$level}
+Work Mode: {$workMode}
+Required Skills: {$skillsText}
+
+Existing description:
+{$existingDescription}
+
+Requirements:
+- Rewrite only the existing description.
+- Preserve all original facts and meaning.
+- Use the structured job data only to improve clarity and consistency.
+- Do not add facts that are not present in the existing description or structured data.
+- Do not include salary information unless it was present in the existing description.
+- Do not include benefits unless they were present in the existing description.
+- Do not add the job title as a heading.
+- Return plain text only.
+- Do not use markdown.
+- Do not use bullet points.
+PROMPT;
+            } else {
+                $prompt = <<<PROMPT
 Write a professional and engaging job description for the following role.
 
 Job Title: {$request->title}
@@ -311,6 +343,7 @@ Requirements:
 - Do not use markdown.
 - Do not use bullet points.
 PROMPT;
+            }
 
             $response = Http::withToken($apiKey)
                 ->acceptJson()
@@ -580,7 +613,12 @@ PROMPT;
         return $reasons;
     }
 
-    public function aiCandidateSummary(Request $request, $id, GeminiService $gemini)
+    public function aiCandidateSummary(
+        Request $request,
+        $id,
+        JobMatchingService $matchingService,
+        LocalCandidateSummaryService $summaryService
+    )
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -610,82 +648,10 @@ PROMPT;
 
         $student = $application->student;
         $resume = $application->resume;
-
-        $skills = $resume?->skills
-            ? implode(', ', $resume->skills)
-            : $student->skills->pluck('name')->implode(', ');
-
-        $experience = collect($resume?->experience ?? [])
-            ->map(function ($exp) {
-                if (is_array($exp)) {
-                    $position = $exp['position'] ?? $exp['title'] ?? '';
-                    $company = $exp['company'] ?? '';
-                    return trim($position . ($company ? ' at ' . $company : ''));
-                }
-
-                return (string) $exp;
-            })
-            ->filter()
-            ->implode(', ');
-
-        $projects = collect($resume?->projects ?? [])
-            ->map(function ($project) {
-                if (is_array($project)) {
-                    return $project['title'] ?? $project['name'] ?? '';
-                }
-
-                return (string) $project;
-            })
-            ->filter()
-            ->implode(', ');
-
-        $prompt = "
-You are an AI recruitment assistant.
-
-Analyze this candidate for a job application.
-
-Candidate Name:
-" . ($resume?->full_name ?? $student->user->name) . "
-
-Professional Title:
-" . ($resume?->professional_title ?? $student->headline) . "
-
-Major:
-{$student->major}
-
-GPA:
-{$student->gpa}
-
-Summary:
-" . ($resume?->summary ?? $student->bio) . "
-
-Skills:
-{$skills}
-
-Experience:
-{$experience}
-
-Projects:
-{$projects}
-
-Applied Job:
-{$application->jobPost->title}
-
-Write a professional candidate evaluation.
-
-Include:
-- Main strengths
-- Technical suitability
-- Possible concerns
-- Recommendation for interview
-
-Keep it concise (one paragraph).
-Do not use markdown.
-Return a short professional hiring summary.
-";
+        $match = $this->getApplicantMatch($application, $matchingService);
 
         try {
-            $summary = $gemini->generate($prompt);
+            $summary = $summaryService->summarize($application, $match);
 
             return response()->json([
                 'candidate' => $resume?->full_name ?? $student->user->name,
@@ -693,13 +659,17 @@ Return a short professional hiring summary.
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'AI service error',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => 'Candidate summary service unavailable'
+            ], 503);
         }
     }
 
-    public function fullApplicantDetails(Request $request, $id, GeminiService $gemini, JobMatchingService $matchingService)
+    public function fullApplicantDetails(
+        Request $request,
+        $id,
+        JobMatchingService $matchingService,
+        LocalCandidateSummaryService $summaryService
+    )
     {
         $company = Company::where('user_id', $request->user()->id)->first();
 
@@ -732,58 +702,13 @@ Return a short professional hiring summary.
         $student = $application->student;
         $resume = $application->resume;
 
-        $skills = $resume?->skills
-            ? implode(', ', $resume->skills)
-            : $student->skills->pluck('name')->implode(', ');
-
-        $projects = collect($resume?->projects ?? [])
-            ->map(function ($project) {
-                if (is_array($project)) {
-                    return $project['title'] ?? $project['name'] ?? '';
-                }
-
-                return (string) $project;
-            })
-            ->filter()
-            ->implode(', ');
-
-        $prompt = "
-Analyze this job candidate briefly.
-
-Name:
-" . ($resume?->full_name ?? $student->user->name) . "
-
-Professional Title:
-" . ($resume?->professional_title ?? $student->headline) . "
-
-Major:
-{$student->major}
-
-GPA:
-{$student->gpa}
-
-Summary:
-" . ($resume?->summary ?? $student->bio) . "
-
-Skills:
-{$skills}
-
-Projects:
-{$projects}
-
-Applied Job:
-{$application->jobPost->title}
-
-Provide a short professional hiring summary.
-";
+        $match = $this->getApplicantMatch($application, $matchingService);
 
         try {
-            $aiSummary = $gemini->generate($prompt);
+            $aiSummary = $summaryService->summarize($application, $match);
         } catch (\Exception $e) {
             $aiSummary = 'AI summary unavailable';
         }
-
-        $match = $this->getApplicantMatch($application, $matchingService);
 
         return response()->json([
             'application_id' => $application->id,
