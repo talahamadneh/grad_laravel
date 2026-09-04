@@ -30,6 +30,7 @@ class AdminAnalyticsService
             'students' => $this->studentsAnalytics($periodStart, $periodEnd),
             'companies' => $this->companiesAnalytics($periodStart, $periodEnd),
             'jobs' => $this->jobsAnalytics($periodStart, $periodEnd),
+            'jobs_over_time' => $this->jobsOverTime(),
             'hiring' => $this->hiringAnalytics($applicationStatusCounts),
             'application_status_distribution' => $this->applicationStatusDistribution(),
             'trends' => [
@@ -143,6 +144,33 @@ class AdminAnalyticsService
                 ->orderByDesc('count')
                 ->get(),
         ];
+    }
+
+    public function jobsOverTime(): array
+    {
+        $driver = DB::connection()->getDriverName();
+        $monthExpression = $driver === 'sqlite'
+            ? "strftime('%Y-%m', created_at)"
+            : "DATE_FORMAT(created_at, '%Y-%m')";
+
+        return DB::table('job_posts')
+            ->whereNotNull('created_at')
+            ->selectRaw("{$monthExpression} as period, COUNT(id) as count")
+            ->groupByRaw($monthExpression)
+            ->orderByRaw($monthExpression)
+            ->get()
+            ->map(function ($row) {
+                $date = Carbon::createFromFormat('Y-m', $row->period);
+
+                return [
+                    'month' => $date->format('M'),
+                    'year' => (int) $date->format('Y'),
+                    'period' => $row->period,
+                    'count' => (int) $row->count,
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     private function hiringAnalytics(Collection $applicationStatusCounts): array

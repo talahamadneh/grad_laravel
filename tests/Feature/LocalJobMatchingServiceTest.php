@@ -30,7 +30,7 @@ class LocalJobMatchingServiceTest extends TestCase
         $this->assertSame('Amman', $payload['student']['location']);
         $this->assertSame('Full-Time', $payload['student']['preferred_employment_type']);
         $this->assertSame(['PHP'], $payload['student']['skills']);
-        $this->assertSame('1.5', $payload['student']['resume']['total_years_experience']);
+        $this->assertSame(0.0, $payload['student']['resume']['total_years_experience']);
         $this->assertSame(['Laravel', 'PHP'], $payload['job']['skills']);
         $this->assertSame('1.0', $payload['job']['min_experience_years']);
         $this->assertSame('3.0', $payload['job']['max_experience_years']);
@@ -146,6 +146,8 @@ class LocalJobMatchingServiceTest extends TestCase
                 'university' => 'Example University',
             ]),
         ]));
+
+        $student->setRelation('experiences', new Collection());
 
         return $student;
     }

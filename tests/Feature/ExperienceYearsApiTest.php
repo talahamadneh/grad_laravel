@@ -9,6 +9,7 @@ use App\Models\Student;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Smalot\PdfParser\Parser;
 use Tests\TestCase;
 
 class ExperienceYearsApiTest extends TestCase
@@ -24,6 +25,7 @@ class ExperienceYearsApiTest extends TestCase
             'job_posts',
             'resumes',
             'companies',
+            'experience',
             'students',
             'users',
         ] as $table) {
@@ -71,15 +73,30 @@ class ExperienceYearsApiTest extends TestCase
             $table->json('projects')->nullable();
             $table->json('certificates')->nullable();
             $table->json('languages')->nullable();
+            $table->json('activities')->nullable();
+            $table->json('achievements')->nullable();
+            $table->boolean('include_profile_photo')->default(true);
             $table->string('file_path')->nullable();
             $table->string('file_name')->nullable();
             $table->boolean('is_public')->default(false);
             $table->timestamps();
         });
 
+        Schema::create('experience', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('student_id');
+            $table->string('company')->nullable();
+            $table->string('position')->nullable();
+            $table->text('description')->nullable();
+            $table->string('start_date', 50)->nullable();
+            $table->string('end_date', 50)->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('job_posts', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id');
+            $table->unsignedBigInteger('category_id')->nullable();
             $table->string('title');
             $table->string('department')->nullable();
             $table->text('description')->nullable();
@@ -105,6 +122,7 @@ class ExperienceYearsApiTest extends TestCase
             $table->timestamp('moderated_at')->nullable();
             $table->timestamp('reviewed_at')->nullable();
             $table->timestamps();
+            $table->softDeletes();
         });
 
         Schema::create('skills', function (Blueprint $table) {
@@ -131,24 +149,32 @@ class ExperienceYearsApiTest extends TestCase
         });
     }
 
-    public function test_resume_create_accepts_total_years_experience(): void
+    public function test_resume_create_ignores_submitted_total_and_returns_calculated_experience(): void
     {
-        [$user] = $this->studentUser();
+        [$user, $student] = $this->studentUser();
 
         $response = $this->actingAs($user)->postJson('/api/student/resume', $this->resumePayload([
-            'total_years_experience' => 1.5,
+            'total_years_experience' => 50,
+            'experience' => [[
+                'title' => 'Developer',
+                'company' => 'Example Company',
+                'start_date' => '2023-01-01',
+                'end_date' => '2023-12-31',
+                'description' => 'Built APIs.',
+            ]],
         ]));
 
         $response->assertCreated()
-            ->assertJsonPath('resume.total_years_experience', '1.5');
+            ->assertJsonPath('resume.total_years_of_experience', 1)
+            ->assertJsonPath('resume.total_years_experience', 1);
 
         $this->assertDatabaseHas('resumes', [
             'student_id' => $user->student->id,
-            'total_years_experience' => 1.5,
+            'total_years_experience' => null,
         ]);
     }
 
-    public function test_resume_update_accepts_total_years_experience(): void
+    public function test_resume_update_does_not_overwrite_calculated_experience(): void
     {
         [$user, $student] = $this->studentUser();
         $resume = Resume::create([
@@ -167,55 +193,77 @@ class ExperienceYearsApiTest extends TestCase
         );
 
         $response->assertOk()
-            ->assertJsonPath('resume.total_years_experience', '3.0');
+            ->assertJsonPath('resume.total_years_of_experience', 0.5)
+            ->assertJsonPath('resume.total_years_experience', 0.5);
 
         $this->assertDatabaseHas('resumes', [
             'id' => $resume->id,
-            'total_years_experience' => 3,
+            'total_years_experience' => null,
         ]);
     }
 
-    public function test_resume_accepts_zero_and_decimal_years(): void
+    public function test_student_can_download_only_their_own_resume_as_pdf(): void
     {
         [$user, $student] = $this->studentUser();
+        [$otherUser] = $this->studentUser();
 
-        $zero = $this->actingAs($user)->postJson('/api/student/resume', $this->resumePayload([
-            'full_name' => 'Zero Years',
-            'total_years_experience' => 0,
-        ]));
-
-        $zero->assertCreated()
-            ->assertJsonPath('resume.total_years_experience', '0.0');
-
-        $decimalResume = Resume::create([
+        $resume = Resume::create([
             'student_id' => $student->id,
-            'title' => 'Decimal Resume',
+            'title' => 'My Resume',
             'template' => 'executive',
-            'full_name' => 'Decimal Years',
-            'professional_title' => 'Developer',
+            'full_name' => 'Student User',
+            'professional_title' => 'Backend Developer',
+            'summary' => str_repeat('Laravel API developer building reliable systems and accessible products. ', 180),
+            'experience' => [[
+                'job_title' => 'Software Engineer',
+                'company' => 'Golden Systems',
+                'start_date' => '2023-01',
+                'end_date' => '2025-03',
+                'description' => 'Built production APIs.',
+            ]],
+            'education' => [[
+                'degree' => 'Bachelor of Science',
+                'university' => 'Example University',
+                'field_of_study' => 'Computer Science',
+                'start_year' => '2020',
+                'end_year' => '2024',
+            ]],
+            'skills' => [['name' => 'Laravel', 'category' => 'Frameworks']],
+            'projects' => [['name' => 'Graduate Platform', 'link' => 'https://example.test/project', 'description' => 'A career platform.']],
+            'certificates' => [['name' => 'Laravel Certificate', 'issuer' => 'Example Academy', 'year' => '2025']],
+            'languages' => [['language' => 'Arabic', 'proficiency' => 'Native']],
+            'activities' => ['Programming club'],
+            'achievements' => ['Graduation project award'],
+            'include_profile_photo' => false,
         ]);
 
-        $decimal = $this->actingAs($user)->putJson(
-            "/api/student/resume/{$decimalResume->id}",
-            $this->resumePayload([
-                'full_name' => 'Decimal Years',
-                'total_years_experience' => 0.5,
-            ])
+        $response = $this->actingAs($user)->get("/api/student/resume/{$resume->id}/pdf");
+
+        $response->assertOk()
+            ->assertHeader('content-type', 'application/pdf')
+            ->assertDownload('Student_User_resume.pdf');
+
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $pdfText = (new Parser())->parseContent($response->getContent())->getText();
+        foreach ([
+            'Professional Experience', 'Total Experience:', 'Software Engineer', 'Golden Systems',
+            'Education', 'Bachelor of Science', 'Example University', 'Computer Science',
+            'Technical Skills', 'Laravel', 'Projects', 'Graduate Platform',
+            'Additional Information', 'Laravel Certificate', 'Example Academy',
+            'Arabic', 'Native', 'Programming club', 'Graduation project award',
+        ] as $expectedText) {
+            $this->assertStringContainsStringIgnoringCase($expectedText, $pdfText);
+        }
+        $this->assertStringContainsStringIgnoringCase('Total Experience: 2.2 Years', $pdfText);
+        $this->assertGreaterThan(
+            1,
+            count((new Parser())->parseContent($response->getContent())->getPages()),
+            'Long resume content should flow onto additional PDF pages.'
         );
 
-        $decimal->assertOk()
-            ->assertJsonPath('resume.total_years_experience', '0.5');
-    }
-
-    public function test_resume_rejects_negative_total_years_experience(): void
-    {
-        [$user] = $this->studentUser();
-
-        $this->actingAs($user)->postJson('/api/student/resume', $this->resumePayload([
-            'total_years_experience' => -0.5,
-        ]))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('total_years_experience');
+        $this->actingAs($otherUser)
+            ->getJson("/api/student/resume/{$resume->id}/pdf")
+            ->assertNotFound();
     }
 
     public function test_job_create_accepts_min_max_experience_and_required_major(): void

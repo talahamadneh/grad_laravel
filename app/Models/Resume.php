@@ -26,6 +26,9 @@ class Resume extends Model
         'file_name',
         'languages',
         'certificates',
+        'activities',
+        'achievements',
+        'include_profile_photo',
         'is_public'
     ];
 
@@ -37,6 +40,9 @@ class Resume extends Model
         'projects' => 'array',
         'languages' => 'array',
         'certificates' => 'array',
+        'activities' => 'array',
+        'achievements' => 'array',
+        'include_profile_photo' => 'boolean',
         'is_public' => 'boolean'
     ];
 

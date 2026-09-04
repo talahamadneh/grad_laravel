@@ -9,16 +9,20 @@ use App\Models\Skill;
 use App\Models\Application;
 use App\Models\ApplicationStatusHistory;
 use App\Models\Interview;
+use App\Models\JobCategory;
 use Illuminate\Support\Facades\Validator;
 use App\Services\AutomaticJobValidationService;
 use App\Services\JobMatchingService;
 use App\Services\LocalCandidateSummaryService;
+use App\Services\StudentExperienceService;
+use App\Services\ExperienceDurationCalculator;
 use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class CompanyController extends Controller
 {
@@ -32,7 +36,7 @@ class CompanyController extends Controller
             ], 404);
         }
 
-        $jobs = JobPost::withCount('applications')
+        $jobs = JobPost::with('category')->withCount('applications')
             ->where('company_id', $company->id)
             ->latest()
             ->get()
@@ -41,6 +45,8 @@ class CompanyController extends Controller
                     'id' => $job->id,
                     'title' => $job->title,
                     'dept' => $job->department,
+                    'category_id' => $job->category_id,
+                    'category' => $this->formatJobCategory($job->category),
                     'type' => $job->employment_type,
                     'level' => $job->level,
                     'min_experience_years' => $job->min_experience_years,
@@ -183,6 +189,11 @@ class CompanyController extends Controller
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'department' => 'nullable|string|max:255',
+            'category_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('job_categories', 'id')->where('is_active', true),
+            ],
             'employment_type' => 'required|in:Full-Time,Part-Time,Internship,Contract',
             'level' => 'nullable|string|max:255',
             'min_experience_years' => 'nullable|numeric|min:0|max:60',
@@ -210,10 +221,15 @@ class CompanyController extends Controller
 
         $validated = $validator->validated();
 
+        $category = isset($validated['category_id'])
+            ? JobCategory::find($validated['category_id'])
+            : null;
+
         $job = JobPost::create([
             'company_id' => $company->id,
+            'category_id' => $category?->id,
             'title' => $validated['title'],
-            'department' => $validated['department'] ?? null,
+            'department' => $category?->name ?? ($validated['department'] ?? null),
             'employment_type' => $validated['employment_type'],
             'level' => $validated['level'] ?? null,
             'min_experience_years' => $validated['min_experience_years'] ?? null,
@@ -245,7 +261,7 @@ class CompanyController extends Controller
             $job->skills()->sync($skillIds);
         }
 
-        $validation = $validationService->apply($job->fresh('skills'));
+        $validation = $validationService->apply($job->fresh(['skills', 'category']));
 
         return response()->json([
             'message' => $validation['status'] === 'Open'
@@ -254,7 +270,7 @@ class CompanyController extends Controller
             'quality_score' => $validation['quality_score'],
             'moderation_issues' => $validation['issues'],
             'moderation_recommendation' => $validation['recommendation'],
-            'job' => $job->fresh('skills'),
+            'job' => $job->fresh(['skills', 'category']),
         ], 201);
     }
 
@@ -526,7 +542,9 @@ PROMPT;
 
             'education' => $resume?->education ?? [],
 
-            'experience' => $resume?->experience ?? [],
+            'experience' => app(StudentExperienceService::class)->forResume($student),
+
+            'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
 
             'projects' => $resume?->projects ?? [],
 
@@ -541,7 +559,8 @@ PROMPT;
                 'full_name' => $resume->full_name,
                 'professional_title' => $resume->professional_title,
                 'summary' => $resume->summary,
-                'experience' => $resume->experience ?? [],
+                'experience' => app(StudentExperienceService::class)->forResume($student),
+                'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
                 'education' => $resume->education ?? [],
                 'skills' => $resume->skills ?? [],
                 'projects' => $resume->projects ?? [],
@@ -554,9 +573,12 @@ PROMPT;
 
             'match' => [
                 'percentage' => $match['percentage'],
+                'level' => $match['level'],
                 'matching_skills' => $match['matching_skills'],
                 'missing_skills' => $match['missing_skills'],
-                'source' => $application->match_source,
+                'breakdown' => $match['breakdown'],
+                'warnings' => $match['warnings'],
+                'source' => $match['match_source'],
                 'analysis' => $application->match_analysis,
                 'reasons' => $this->generateMatchReasons(
                     $application,
@@ -649,8 +671,7 @@ PROMPT;
         $student = $application->student;
         $resume = $application->resume;
         $match = $this->getApplicantMatch($application, $matchingService);
-
-        try {
+      try {
             $summary = $summaryService->summarize($application, $match);
 
             return response()->json([
@@ -733,7 +754,9 @@ PROMPT;
 
             'education' => $resume?->education ?? [],
 
-            'experience' => $resume?->experience ?? [],
+            'experience' => app(StudentExperienceService::class)->forResume($student),
+
+            'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
 
             'projects' => $resume?->projects ?? [],
 
@@ -748,7 +771,8 @@ PROMPT;
                 'full_name' => $resume->full_name,
                 'professional_title' => $resume->professional_title,
                 'summary' => $resume->summary,
-                'experience' => $resume->experience ?? [],
+                'experience' => app(StudentExperienceService::class)->forResume($student),
+                'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
                 'education' => $resume->education ?? [],
                 'skills' => $resume->skills ?? [],
                 'projects' => $resume->projects ?? [],
@@ -761,9 +785,12 @@ PROMPT;
 
             'match' => [
                 'percentage' => $match['percentage'],
+                'level' => $match['level'],
                 'matching_skills' => $match['matching_skills'],
                 'missing_skills' => $match['missing_skills'],
-                'source' => $application->match_source,
+                'breakdown' => $match['breakdown'],
+                'warnings' => $match['warnings'],
+                'source' => $match['match_source'],
                 'analysis' => $application->match_analysis,
                 'reasons' => $this->generateMatchReasons(
                     $application,
@@ -793,8 +820,12 @@ PROMPT;
 
         return [
             'percentage' => $match['match'],
+            'level' => $match['level'],
             'matching_skills' => $match['matching_skills'],
             'missing_skills' => $match['missing_skills'],
+            'breakdown' => $match['breakdown'],
+            'warnings' => $match['warnings'],
+            'match_source' => $match['match_source'],
             'reasons' => $this->generateMatchReasons($application, $match)
         ];
     }
@@ -811,6 +842,7 @@ PROMPT;
 
         $job = JobPost::with([
             'skills',
+            'category',
             'applications.student.user',
             'applications.student.skills'
         ])
@@ -829,6 +861,8 @@ PROMPT;
             'id' => $job->id,
             'title' => $job->title,
             'department' => $job->department,
+            'category_id' => $job->category_id,
+            'category' => $this->formatJobCategory($job->category),
             'description' => $job->description,
             'responsibilities' => $job->responsibilities,
             'requirements' => $job->requirements,
@@ -901,7 +935,7 @@ PROMPT;
             ], 404);
         }
 
-        $job = JobPost::with('skills')
+        $job = JobPost::with(['skills', 'category'])
             ->where('company_id', $company->id)
             ->find($id);
 
@@ -915,6 +949,8 @@ PROMPT;
             'id' => $job->id,
             'title' => $job->title,
             'department' => $job->department,
+            'category_id' => $job->category_id,
+            'category' => $this->formatJobCategory($job->category),
             'description' => $job->description,
             'responsibilities' => $job->responsibilities,
             'requirements' => $job->requirements,
@@ -950,7 +986,7 @@ PROMPT;
             ], 404);
         }
 
-        $job = JobPost::with('skills')
+        $job = JobPost::with(['skills', 'category'])
             ->where('company_id', $company->id)
             ->find($id);
 
@@ -963,6 +999,11 @@ PROMPT;
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'department' => 'nullable|string|max:255',
+            'category_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('job_categories', 'id')->where('is_active', true),
+            ],
             'employment_type' => 'required|in:Full-Time,Part-Time,Internship,Contract',
             'level' => 'nullable|string|max:255',
             'min_experience_years' => 'nullable|numeric|min:0|max:60',
@@ -993,10 +1034,15 @@ PROMPT;
 
         $requestedStatus = $validated['status'] ?? null;
         $shouldSkipValidation = in_array($requestedStatus, ['Closed', 'Draft'], true);
+        $categoryId = array_key_exists('category_id', $validated)
+            ? $validated['category_id']
+            : $job->category_id;
+        $category = $categoryId ? JobCategory::find($categoryId) : null;
 
         $job->update([
+            'category_id' => $categoryId,
             'title' => $validated['title'],
-            'department' => $validated['department'] ?? null,
+            'department' => $category?->name ?? ($validated['department'] ?? $job->department),
             'employment_type' => $validated['employment_type'],
             'level' => $validated['level'] ?? null,
             'min_experience_years' => $validated['min_experience_years'] ?? null,
@@ -1031,7 +1077,7 @@ PROMPT;
         if ($shouldSkipValidation) {
             return response()->json([
                 'message' => 'Job updated successfully',
-                'job' => $job->fresh('skills')
+                'job' => $job->fresh(['skills', 'category'])
             ]);
         }
 
@@ -1040,7 +1086,7 @@ PROMPT;
             'reviewed_at' => null,
         ]);
 
-        $validation = $validationService->apply($job->fresh('skills'));
+        $validation = $validationService->apply($job->fresh(['skills', 'category']));
 
         return response()->json([
             'message' => $validation['status'] === 'Open'
@@ -1049,8 +1095,17 @@ PROMPT;
             'quality_score' => $validation['quality_score'],
             'moderation_issues' => $validation['issues'],
             'moderation_recommendation' => $validation['recommendation'],
-            'job' => $job->fresh('skills')
+            'job' => $job->fresh(['skills', 'category'])
         ]);
+    }
+
+    private function formatJobCategory(?JobCategory $category): ?array
+    {
+        return $category ? [
+            'id' => $category->id,
+            'name' => $category->name,
+            'slug' => $category->slug,
+        ] : null;
     }
 
     public function destroyJob(Request $request, $id)
@@ -1168,7 +1223,9 @@ PROMPT;
 
                     'education' => $resume?->education ?? [],
 
-                    'experience' => $resume?->experience ?? [],
+                    'experience' => app(StudentExperienceService::class)->forResume($student),
+
+                    'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
 
                     'projects' => $resume?->projects ?? [],
 
@@ -1183,7 +1240,8 @@ PROMPT;
                         'full_name' => $resume->full_name,
                         'professional_title' => $resume->professional_title,
                         'summary' => $resume->summary,
-                        'experience' => $resume->experience ?? [],
+                        'experience' => app(StudentExperienceService::class)->forResume($student),
+                        'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
                         'education' => $resume->education ?? [],
                         'skills' => $resume->skills ?? [],
                         'projects' => $resume->projects ?? [],

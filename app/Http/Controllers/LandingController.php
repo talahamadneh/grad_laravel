@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Student;
 use App\Models\Company;
 use App\Models\Application;
-use Illuminate\Http\Request;
 
 class LandingController extends Controller
 {
@@ -20,6 +19,28 @@ class LandingController extends Controller
              "satisfaction-rate" => 94,
             'message' => 'Welcome to the API Landing Page',
             'status' => 'success'
+        ]);
+    }
+
+    public function companies()
+    {
+        $companies = Company::query()
+            ->select([
+                'id',
+                'company_name',
+                'logo',
+                'industry',
+                'location',
+                'description',
+                'website',
+                'is_verified',
+            ])
+            ->orderBy('company_name')
+            ->get();
+
+        return response()->json([
+            'companies' => $companies,
+            'status' => 'success',
         ]);
     }
 }

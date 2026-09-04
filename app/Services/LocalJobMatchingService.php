@@ -160,7 +160,9 @@ class LocalJobMatchingService
 
     private function studentPayload(Student $student, ?Resume $resume = null): array
     {
-        $student->loadMissing(['skills', 'education']);
+        $student->loadMissing(['skills', 'education', 'experiences']);
+
+        $totalExperience = app(ExperienceDurationCalculator::class)->forStudent($student);
 
         $resume ??= Resume::where('student_id', $student->id)
             ->latest()
@@ -189,10 +191,10 @@ class LocalJobMatchingService
             'resume' => $resume ? [
                 'professional_title' => $resume->professional_title,
                 'summary' => $resume->summary,
-                'total_years_experience' => $resume->total_years_experience,
+                'total_years_experience' => $totalExperience,
                 'skills' => $resume->skills ?? [],
                 'education' => $resume->education ?? [],
-                'experience' => $resume->experience ?? [],
+                'experience' => app(StudentExperienceService::class)->forResume($student),
                 'projects' => $resume->projects ?? [],
             ] : null,
         ];

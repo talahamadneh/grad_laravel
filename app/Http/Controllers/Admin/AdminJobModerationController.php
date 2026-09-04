@@ -4,11 +4,50 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\JobPost;
+use App\Models\Application;
 use App\Services\AdminActivityLogService;
 use Illuminate\Http\Request;
 
 class AdminJobModerationController extends Controller
 {
+    public function applicants(Request $request, JobPost $job)
+    {
+        $this->authorizeAdmin($request);
+
+        $validated = $request->validate([
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        $query = $job->applications()
+            ->with(['student.user', 'resume'])
+            ->orderByDesc('applied_at')
+            ->orderByDesc('id');
+
+        $applicantsCount = (clone $query)->count();
+        $usePagination = $request->hasAny(['page', 'per_page']);
+
+        if ($usePagination) {
+            $applicants = $query
+                ->paginate((int) ($validated['per_page'] ?? 20))
+                ->through(fn (Application $application) => $this->formatApplicant($application, $job));
+        } else {
+            $applicants = $query
+                ->get()
+                ->map(fn (Application $application) => $this->formatApplicant($application, $job))
+                ->values();
+        }
+
+        return response()->json([
+            'job' => [
+                'id' => $job->id,
+                'title' => $job->title,
+            ],
+            'applicants_count' => $applicantsCount,
+            'applicants' => $applicants,
+        ]);
+    }
+
     public function index(Request $request)
     {
         $this->authorizeAdmin($request);
@@ -18,7 +57,7 @@ class AdminJobModerationController extends Controller
             'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
-        $query = JobPost::with(['company', 'skills'])
+        $query = JobPost::with(['company', 'skills', 'category'])
             ->withCount('applications');
 
         if ($request->filled('status')) {
@@ -41,7 +80,7 @@ class AdminJobModerationController extends Controller
     {
         $this->authorizeAdmin($request);
 
-        $job->load(['company', 'skills'])
+        $job->load(['company', 'skills', 'category'])
             ->loadCount('applications');
 
         return response()->json([
@@ -80,7 +119,7 @@ class AdminJobModerationController extends Controller
 
         return response()->json([
             'message' => 'Job approved and published successfully.',
-            'job' => $this->formatJob($job->fresh(['company', 'skills'])),
+            'job' => $this->formatJob($job->fresh(['company', 'skills', 'category'])),
         ]);
     }
 
@@ -108,7 +147,7 @@ class AdminJobModerationController extends Controller
 
         return response()->json([
             'message' => 'Job rejected successfully.',
-            'job' => $this->formatJob($job->fresh(['company', 'skills'])),
+            'job' => $this->formatJob($job->fresh(['company', 'skills', 'category'])),
         ]);
     }
 
@@ -136,7 +175,7 @@ class AdminJobModerationController extends Controller
 
         return response()->json([
             'message' => 'Changes requested successfully.',
-            'job' => $this->formatJob($job->fresh(['company', 'skills'])),
+            'job' => $this->formatJob($job->fresh(['company', 'skills', 'category'])),
         ]);
     }
 
@@ -164,7 +203,7 @@ class AdminJobModerationController extends Controller
 
         return response()->json([
             'message' => 'Job suspended successfully.',
-            'job' => $this->formatJob($job->fresh(['company', 'skills'])),
+            'job' => $this->formatJob($job->fresh(['company', 'skills', 'category'])),
         ]);
     }
 
@@ -185,7 +224,7 @@ class AdminJobModerationController extends Controller
             'reviewed_at' => null,
         ]);
 
-        $job->load(['company', 'skills'])
+        $job->load(['company', 'skills', 'category'])
             ->loadCount('applications');
 
         return response()->json([
@@ -199,6 +238,27 @@ class AdminJobModerationController extends Controller
         abort_if(strtolower($request->user()?->role ?? '') !== 'admin', 403, 'Unauthorized. Admin access required.');
     }
 
+    private function formatApplicant(Application $application, JobPost $job): array
+    {
+        $student = $application->student;
+        $resume = $application->resume;
+
+        return [
+            'application_id' => $application->id,
+            'job_id' => $job->id,
+            'student_id' => $application->student_id,
+            'name' => $resume?->full_name ?? $student?->user?->name ?? 'Unknown Student',
+            'email' => $student?->user?->email,
+            'avatar' => $student?->avatar,
+            'professional_title' => $resume?->professional_title ?? $student?->headline,
+            'status' => $application->status,
+            'match_percentage' => $application->match_score === null
+                ? null
+                : (float) $application->match_score,
+            'applied_at' => $application->applied_at?->toISOString(),
+        ];
+    }
+
     private function formatJob(JobPost $job): array
     {
         return [
@@ -206,6 +266,12 @@ class AdminJobModerationController extends Controller
             'title' => $job->title,
             'company' => $job->company?->company_name,
             'department' => $job->department,
+            'category_id' => $job->category_id,
+            'category' => $job->category ? [
+                'id' => $job->category->id,
+                'name' => $job->category->name,
+                'slug' => $job->category->slug,
+            ] : null,
             'description' => $job->description,
             'requirements' => $job->requirements,
             'employment_type' => $job->employment_type,

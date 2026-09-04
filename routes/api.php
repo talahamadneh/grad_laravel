@@ -13,6 +13,7 @@ use App\Http\Controllers\StudentJobController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ResumeController;
 use App\Http\Controllers\JobController;
+use App\Http\Controllers\JobCategoryController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SettingsController;
@@ -29,12 +30,14 @@ use App\Http\Controllers\Admin\AdminAnalyticsController;
 use App\Http\Controllers\Admin\AdminApplicationController;
 use App\Http\Controllers\Admin\AdminCompanyController;
 use App\Http\Controllers\Admin\AdminJobModerationController;
+use App\Http\Controllers\Admin\AdminJobCategoryController;
 use App\Http\Controllers\Admin\AdminReportController;
 use App\Http\Controllers\Admin\AdminSkillController;
 use App\Http\Controllers\Admin\AdminStudentController;
 use App\Http\Controllers\Admin\AdminSystemLogController;
 
 Route::get('/landing/stats', [LandingController::class, 'stats']);
+Route::get('/landing/companies', [LandingController::class, 'companies']);
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
@@ -65,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/student/resume/{id}/pdf', [ResumeController::class, 'generatePdf']);
 
     //job posts
+    Route::get('/job-categories', [JobCategoryController::class, 'index']);
     Route::get('/jobs', [JobController::class, 'index']);
     Route::get('/jobs/{id}', [JobController::class, 'show']);
 
@@ -223,6 +227,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Admin job moderation routes
     Route::get('/admin/jobs/moderation', [AdminJobModerationController::class, 'index']);
     Route::get('/admin/jobs/{job}/moderation', [AdminJobModerationController::class, 'show']);
+    Route::get('/admin/jobs/{job}/applicants', [AdminJobModerationController::class, 'applicants']);
     Route::patch('/admin/jobs/{job}/approve', [AdminJobModerationController::class, 'approve']);
     Route::patch('/admin/jobs/{job}/reject', [AdminJobModerationController::class, 'reject']);
     Route::patch('/admin/jobs/{job}/request-changes', [AdminJobModerationController::class, 'requestChanges']);
@@ -236,6 +241,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/admin/skills/{skill}', [AdminSkillController::class, 'update']);
     Route::patch('/admin/skills/{skill}', [AdminSkillController::class, 'update']);
     Route::delete('/admin/skills/{skill}', [AdminSkillController::class, 'destroy']);
+
+    // Admin job category routes
+    Route::get('/admin/categories', [AdminJobCategoryController::class, 'index']);
+    Route::post('/admin/categories', [AdminJobCategoryController::class, 'store']);
+    Route::get('/admin/categories/{category}', [AdminJobCategoryController::class, 'show']);
+    Route::put('/admin/categories/{category}', [AdminJobCategoryController::class, 'update']);
+    Route::patch('/admin/categories/{category}', [AdminJobCategoryController::class, 'update']);
+    Route::delete('/admin/categories/{category}', [AdminJobCategoryController::class, 'destroy']);
 
     // Admin student routes
     Route::get('/admin/students', [AdminStudentController::class, 'index']);

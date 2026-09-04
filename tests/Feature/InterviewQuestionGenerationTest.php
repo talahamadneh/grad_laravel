@@ -735,12 +735,25 @@ class InterviewQuestionGenerationTest extends TestCase
 
         $previousQuestion = InterviewQuizAttempt::find($firstAttemptId)->questions[0]['question'];
 
-        $secondAttemptId = $this->actingAs($user)
+        $retakeResponse = $this->actingAs($user)
             ->postJson('/api/ai/interview/retake', ['job_id' => $job->id])
             ->assertOk()
-            ->json('attempt_id');
+            ->assertJsonPath('status', InterviewQuizAttempt::STATUS_OPEN)
+            ->assertJsonStructure([
+                'attempt_id',
+                'questions' => [['id', 'question', 'options', 'difficulty', 'skill']],
+            ]);
+
+        $secondAttemptId = $retakeResponse->json('attempt_id');
+        $publicQuestions = collect($retakeResponse->json('questions'));
 
         $this->assertNotSame($firstAttemptId, $secondAttemptId);
+        $this->assertNotEmpty($publicQuestions);
+        $this->assertTrue($publicQuestions->every(
+            fn (array $question) => !array_key_exists('student_answer', $question)
+                && !array_key_exists('is_correct', $question)
+                && !array_key_exists('correct_answer', $question)
+        ));
         $this->assertSame(2, InterviewQuizAttempt::count());
         $this->assertSame(InterviewQuizAttempt::STATUS_COMPLETED, InterviewQuizAttempt::find($firstAttemptId)->status);
         $this->assertStringContainsString('avoid_previous_questions', $prompts[1]);

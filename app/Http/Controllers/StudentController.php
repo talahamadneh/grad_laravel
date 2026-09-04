@@ -7,6 +7,7 @@ use App\Models\Student;
 use App\Models\Skill;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use App\Services\ExperienceDurationCalculator;
 
 class StudentController extends Controller
 {
@@ -46,6 +47,7 @@ class StudentController extends Controller
             'github' => $student->github,
             'education' => $student->education,
             'experiences' => $student->experiences,
+            'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
             'skills' => $student->skills,
         ]);
     }
@@ -279,6 +281,7 @@ class StudentController extends Controller
             'github' => $student->github,
             'education' => $student->education,
             'experiences' => $student->experiences,
+            'total_years_of_experience' => app(ExperienceDurationCalculator::class)->forStudent($student),
             'skills' => $student->skills,
         ]);
     }

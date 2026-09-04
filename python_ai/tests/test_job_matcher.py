@@ -86,10 +86,21 @@ def test_experience_inside_range():
 
 def test_experience_below_minimum():
     payload = base_payload()
-    payload["student"]["resume"]["total_years_experience"] = 0.5
+    payload["student"]["resume"]["total_years_experience"] = 0.3
     payload["job"]["min_experience_years"] = 1
     result = match_job(payload)
-    assert 0 < result["breakdown"]["experience"]["score"] < 20
+    assert result["breakdown"]["experience"]["score"] == 0
+
+
+def test_experience_slightly_below_minimum_receives_partial_score():
+    payload = base_payload()
+    payload["student"]["resume"]["total_years_experience"] = 2.5
+    payload["job"]["min_experience_years"] = 3
+    payload["job"]["max_experience_years"] = 4
+    result = match_job(payload)
+    assert result["breakdown"]["experience"]["score"] == 16.67
+    assert "Student experience is close to the requested minimum." in result["reasons"]
+    assert "Student experience is slightly below the requested minimum." in result["warnings"]
 
 
 def test_min_only_five_plus_experience():
@@ -99,6 +110,16 @@ def test_min_only_five_plus_experience():
     payload["job"]["max_experience_years"] = None
     result = match_job(payload)
     assert result["breakdown"]["experience"]["score"] == 20
+
+
+def test_experience_above_maximum_still_scores_fully():
+    payload = base_payload()
+    payload["student"]["resume"]["total_years_experience"] = 6
+    payload["job"]["min_experience_years"] = 2
+    payload["job"]["max_experience_years"] = 5
+    result = match_job(payload)
+    assert result["breakdown"]["experience"]["score"] == 20
+    assert "Student meets or exceeds the minimum experience requirement." in result["reasons"]
 
 
 def test_job_experience_unspecified_redistributes():

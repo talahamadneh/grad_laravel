@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Http;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Smalot\PdfParser\Parser;
 use PhpOffice\PhpWord\IOFactory;
+use App\Services\ExperienceDurationCalculator;
+use App\Services\StudentExperienceService;
+use Illuminate\Support\Facades\DB;
 
 class ResumeController extends Controller
 {
@@ -25,6 +28,7 @@ class ResumeController extends Controller
         }
 
         $resume = Resume::where('student_id', $student->id)->first();
+        $totalExperience = app(ExperienceDurationCalculator::class)->forStudent($student);
 
         $profileData = [
             'avatar' => $student->avatar,
@@ -49,12 +53,16 @@ class ResumeController extends Controller
                 'summary' => $student->bio,
                 ...$profileData,
                 'skills' => $student->skills->pluck('name')->toArray(),
-                'experience' => $student->experience,
-                'total_years_experience' => null,
+                'experience' => app(StudentExperienceService::class)->forResume($student),
+                'total_years_of_experience' => $totalExperience,
+                'total_years_experience' => $totalExperience,
                 'education' => $student->education,
                 'projects' => [],
                 'languages' => [],
                 'certificates' => [],
+                'activities' => [],
+                'achievements' => [],
+                'include_profile_photo' => true,
                 'template' => 'executive',
                 'title' => 'My Resume',
                 'file_path' => null,
@@ -68,8 +76,9 @@ class ResumeController extends Controller
             ...$resume->toArray(),
             ...$profileData,
             'skills' => $resume->skills ?? $student->skills->pluck('name')->toArray(),
-            'experience' => $resume->experience ?? $student->experience,
-            'total_years_experience' => $resume->total_years_experience,
+            'experience' => app(StudentExperienceService::class)->forResume($student),
+            'total_years_of_experience' => $totalExperience,
+            'total_years_experience' => $totalExperience,
             'education' => $resume->education ?? $student->education,
             'projects' => $resume->projects ?? [],
             'languages' => $resume->languages ?? [],
@@ -106,12 +115,14 @@ class ResumeController extends Controller
             'experience.*.start_date' => 'nullable|string|max:50',
             'experience.*.end_date' => 'nullable|string|max:50',
             'experience.*.description' => 'nullable|string',
-            'total_years_experience' => 'nullable|numeric|min:0|max:60',
             'education' => 'nullable|array',
             'skills' => 'nullable|array',
             'projects' => 'nullable|array',
             'languages' => 'nullable|array',
             'certificates' => 'nullable|array',
+            'activities' => 'nullable|array',
+            'achievements' => 'nullable|array',
+            'include_profile_photo' => 'nullable|boolean',
             'is_public' => 'nullable|boolean',
         ]);
 
@@ -121,26 +132,35 @@ class ResumeController extends Controller
             ], 422);
         }
 
-        $resume = Resume::create([
-            'student_id' => $student->id,
-            'title' => $request->input('title', 'My Resume'),
-            'template' => $request->template,
-            'full_name' => $request->full_name,
-            'professional_title' => $request->professional_title,
-            'summary' => $request->summary,
-            'experience' => $request->experience,
-            'total_years_experience' => $request->total_years_experience,
-            'education' => $request->education,
-            'skills' => $request->skills,
-            'projects' => $request->projects,
-            'languages' => $request->languages,
-            'certificates' => $request->certificates,
-            'is_public' => $request->input('is_public', false),
-        ]);
+        $resume = DB::transaction(function () use ($request, $student) {
+            app(StudentExperienceService::class)->sync(
+                $student,
+                $request->input('experience', [])
+            );
+
+            return Resume::create([
+                'student_id' => $student->id,
+                'title' => $request->input('title', 'My Resume'),
+                'template' => $request->template,
+                'full_name' => $request->full_name,
+                'professional_title' => $request->professional_title,
+                'summary' => $request->summary,
+                'experience' => app(StudentExperienceService::class)->forResume($student),
+                'education' => $request->education,
+                'skills' => $request->skills,
+                'projects' => $request->projects,
+                'languages' => $request->languages,
+                'certificates' => $request->certificates,
+                'activities' => $request->activities,
+                'achievements' => $request->achievements,
+                'include_profile_photo' => $request->boolean('include_profile_photo', true),
+                'is_public' => $request->input('is_public', false),
+            ]);
+        });
 
         return response()->json([
             'message' => 'Resume created successfully',
-            'resume' => $resume
+            'resume' => $this->resumeWithCalculatedExperience($resume, $student)
         ], 201);
     }
 
@@ -176,12 +196,14 @@ class ResumeController extends Controller
             'experience.*.start_date' => 'nullable|string|max:50',
             'experience.*.end_date' => 'nullable|string|max:50',
             'experience.*.description' => 'nullable|string',
-            'total_years_experience' => 'nullable|numeric|min:0|max:60',
             'education' => 'nullable|array',
             'skills' => 'nullable|array',
             'projects' => 'nullable|array',
             'languages' => 'nullable|array',
             'certificates' => 'nullable|array',
+            'activities' => 'nullable|array',
+            'achievements' => 'nullable|array',
+            'include_profile_photo' => 'nullable|boolean',
             'is_public' => 'nullable|boolean',
         ]);
 
@@ -191,26 +213,41 @@ class ResumeController extends Controller
             ], 422);
         }
 
-        $resume->update($request->only([
-            'title',
-            'template',
-            'full_name',
-            'professional_title',
-            'summary',
-            'experience',
-            'total_years_experience',
-            'education',
-            'skills',
-            'projects',
-            'languages',
-            'certificates',
-            'is_public',
-        ]));
+        DB::transaction(function () use ($request, $student, $resume) {
+            if ($request->has('experience')) {
+                app(StudentExperienceService::class)->sync(
+                    $student,
+                    $request->input('experience', [])
+                );
+            }
+
+            $data = $request->only([
+                'title', 'template', 'full_name', 'professional_title', 'summary',
+                'education', 'skills', 'projects', 'languages', 'certificates',
+                'activities', 'achievements', 'include_profile_photo', 'is_public',
+            ]);
+
+            $data['experience'] = app(StudentExperienceService::class)->forResume($student);
+            $resume->update($data);
+        });
 
         return response()->json([
             'message' => 'Resume updated successfully',
-            'resume' => $resume
+            'resume' => $this->resumeWithCalculatedExperience($resume->fresh(), $student)
         ]);
+    }
+
+    private function resumeWithCalculatedExperience(Resume $resume, $student): array
+    {
+        $years = app(ExperienceDurationCalculator::class)->forStudent($student);
+
+        return [
+            ...$resume->toArray(),
+            'experience' => app(StudentExperienceService::class)->forResume($student),
+            'total_years_of_experience' => $years,
+            // Kept as a read-only compatibility alias for existing clients and matcher payloads.
+            'total_years_experience' => $years,
+        ];
     }
 
     public function destroy(Request $request, $id)
@@ -498,6 +535,11 @@ PROMPT;
                 $student->id
             )->first();
 
+            app(StudentExperienceService::class)->sync(
+                $student,
+                $parsedData['experience'] ?? []
+            );
+
             $resumeData = [
                 'student_id' => $student->id,
                 'title' => 'My Resume',
@@ -521,7 +563,7 @@ PROMPT;
                     $parsedData['skills'] ?? [],
 
                 'experience' =>
-                    $parsedData['experience'] ?? [],
+                    app(StudentExperienceService::class)->forResume($student),
 
                 'total_years_experience' => null,
 
@@ -600,7 +642,7 @@ PROMPT;
 
             return response()->json([
                 'message' => 'CV uploaded and analyzed successfully',
-                'resume' => $resume,
+                'resume' => $this->resumeWithCalculatedExperience($resume, $student),
                 'file_path' => $filePath,
                 'file_name' => $safeFileName,
                 'file_url' => Storage::disk('public')->url(
@@ -626,6 +668,12 @@ PROMPT;
     {
         $student = $request->user()->student;
 
+        if (!$student) {
+            return response()->json([
+                'message' => 'Student profile not found'
+            ], 404);
+        }
+
         $resume = Resume::where('id', $id)
             ->where('student_id', $student->id)
             ->first();
@@ -639,15 +687,26 @@ PROMPT;
         $skills = $resume->skills ?? [];
         $education = $resume->education ?? [];
         $experience = $resume->experience ?? [];
+        if ($experience === []) {
+            $experience = app(StudentExperienceService::class)->forResume($student);
+        }
         $projects = $resume->projects ?? [];
         $languages = $resume->languages ?? [];
         $certificates = $resume->certificates ?? [];
+
+        $calculatedExperience = app(ExperienceDurationCalculator::class)->fromExperiences($experience);
+        $resume->setAttribute('total_years_of_experience', $calculatedExperience);
+        $totalExperience = $resume->total_years_of_experience
+            ?? $resume->total_years_experience
+            ?? 0;
+        $includeProfilePhoto = (bool) $resume->include_profile_photo;
 
         $data = [
             'resume' => $resume,
             'student' => $student,
             'user' => $request->user(),
-            'avatar' => $student->avatar,
+            'avatar' => $this->pdfAvatar($student->avatar, $includeProfilePhoto),
+            'includeProfilePhoto' => $includeProfilePhoto,
             'email' => $request->user()->email,
             'phone' => $student->phone,
             'location' => $student->location,
@@ -656,18 +715,98 @@ PROMPT;
             'portfolio' => $student->portfolio,
             'gpa' => $student->gpa,
             'skills' => $skills,
+            'skillGroups' => $this->groupSkills($skills),
             'education' => $education,
             'experience' => $experience,
             'projects' => $projects,
             'languages' => $languages,
             'certificates' => $certificates,
+            'activities' => $resume->activities ?? [],
+            'achievements' => $resume->achievements ?? [],
+            'totalExperience' => $totalExperience,
         ];
 
         $pdf = Pdf::loadView('resume.pdf', $data)
+            ->setOption('isRemoteEnabled', true)
             ->setPaper('a4', 'portrait');
 
-        return $pdf->download(
-            str_replace(' ', '_', $resume->full_name) . '_resume.pdf'
-        );
+        $downloadName = trim((string) ($resume->full_name ?: $request->user()->name));
+        $downloadName = preg_replace('/[^A-Za-z0-9_-]+/', '_', $downloadName) ?: 'resume';
+
+        return $pdf->download($downloadName . '_resume.pdf');
+    }
+
+    private function groupSkills(array $skills): array
+    {
+        $groups = [];
+
+        foreach ($skills as $skill) {
+            $name = trim((string) (is_array($skill) ? ($skill['name'] ?? '') : $skill));
+            if ($name === '') {
+                continue;
+            }
+
+            $category = is_array($skill)
+                ? trim((string) ($skill['category'] ?? $skill['category_name'] ?? ''))
+                : '';
+
+            if ($category === '') {
+                $category = $this->inferSkillCategory($name);
+            }
+
+            $groups[$category] ??= [];
+            if (!in_array($name, $groups[$category], true)) {
+                $groups[$category][] = $name;
+            }
+        }
+
+        return $groups;
+    }
+
+    private function inferSkillCategory(string $skill): string
+    {
+        $normalized = strtolower(trim($skill));
+
+        $programming = ['java', 'javascript', 'typescript', 'python', 'php', 'c', 'c++', 'c#', 'sql', 'html', 'css', 'dart', 'kotlin', 'swift'];
+        $frameworks = ['react', 'angular', 'vue', 'laravel', 'django', 'fastapi', 'node.js', 'node', 'flutter', 'spring', 'bootstrap', 'tailwind'];
+        $tools = ['git', 'github', 'gitlab', 'docker', 'postman', 'figma', 'jira', 'linux', 'aws', 'azure', 'kubernetes'];
+
+        if (in_array($normalized, $programming, true)) {
+            return 'Programming Languages';
+        }
+        if (in_array($normalized, $frameworks, true)) {
+            return 'Frameworks & Libraries';
+        }
+        if (in_array($normalized, $tools, true)) {
+            return 'Tools';
+        }
+
+        return 'Other Skills';
+    }
+
+    private function pdfAvatar(?string $avatar, bool $include): ?string
+    {
+        if (!$include || !$avatar) {
+            return null;
+        }
+
+        if (str_starts_with($avatar, 'data:') || filter_var($avatar, FILTER_VALIDATE_URL)) {
+            return $avatar;
+        }
+
+        $relative = ltrim(preg_replace('#^/?storage/#', '', $avatar), '/');
+        $path = Storage::disk('public')->path($relative);
+
+        if (!is_file($path)) {
+            $path = public_path(ltrim($avatar, '/'));
+        }
+
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $mime = mime_content_type($path) ?: 'image/jpeg';
+
+        return 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($path));
     }
 }

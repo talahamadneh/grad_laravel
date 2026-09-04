@@ -13,6 +13,8 @@ BASE_WEIGHTS = {
     "preferences": 10.0,
 }
 
+EXPERIENCE_NEAR_MISS_YEARS = 0.5
+
 
 def match_job(payload: dict[str, Any]) -> dict[str, Any]:
     student = payload.get("student") or {}
@@ -106,15 +108,20 @@ def _experience_score(student: dict[str, Any], job: dict[str, Any], reasons: lis
         return _scored("experience", 0)
 
     if minimum is not None and years < minimum:
-        ratio = years / minimum if minimum > 0 else 1
-        score = BASE_WEIGHTS["experience"] * max(0.0, min(1.0, ratio))
-        warnings.append("Student experience is below the requested minimum.")
-    elif maximum is not None and years > maximum:
-        score = BASE_WEIGHTS["experience"] * 0.9
-        reasons.append("Student meets or exceeds the minimum experience requirement.")
+        shortfall = minimum - years
+        if shortfall <= EXPERIENCE_NEAR_MISS_YEARS and minimum > 0:
+            score = BASE_WEIGHTS["experience"] * (years / minimum)
+            reasons.append("Student experience is close to the requested minimum.")
+            warnings.append("Student experience is slightly below the requested minimum.")
+        else:
+            score = 0
+            warnings.append("Student experience is below the requested minimum.")
     else:
         score = BASE_WEIGHTS["experience"]
-        reasons.append("Student experience is within the requested range.")
+        if minimum is not None:
+            reasons.append("Student meets or exceeds the minimum experience requirement.")
+        else:
+            reasons.append("Student experience satisfies the job requirement.")
 
     return _scored("experience", score)
 
@@ -263,4 +270,3 @@ def _level(score: int) -> str:
     if score >= 60:
         return "Fair Match"
     return "Low Match"
-

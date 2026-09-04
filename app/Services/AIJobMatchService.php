@@ -142,7 +142,7 @@ Job:
                 'professional_title' => $resume->professional_title,
                 'summary' => $resume->summary,
                 'skills' => $resume->skills,
-                'experience' => $resume->experience,
+                'experience' => app(StudentExperienceService::class)->forResume($student),
                 'education' => $resume->education,
                 'projects' => $resume->projects,
             ] : null,

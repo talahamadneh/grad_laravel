@@ -29,7 +29,7 @@ class JobController extends Controller
     {
         $student = Auth::user()?->student;
 
-        $query = JobPost::with(['company', 'skills'])
+        $query = JobPost::with(['company', 'skills', 'category'])
             ->withCount('applications')
             ->where('status', 'Open');
 
@@ -61,6 +61,10 @@ class JobController extends Controller
             }
         }
 
+        if ($request->filled('category_id')) {
+            $query->where('category_id', $request->integer('category_id'));
+        }
+
         $jobs = $query->paginate(10);
 
         if ($student) {
@@ -89,7 +93,7 @@ class JobController extends Controller
     {
         $student = Auth::user()?->student;
 
-        $job = JobPost::with(['company', 'skills'])
+        $job = JobPost::with(['company', 'skills', 'category'])
             ->withCount('applications')
             ->where('status', 'Open')
             ->findOrFail($id);
@@ -157,7 +161,8 @@ class JobController extends Controller
 
         $jobs = SavedJob::with([
             'jobPost.company',
-            'jobPost.skills'
+            'jobPost.skills',
+            'jobPost.category'
         ])
             ->where('student_id', $student->id)
             ->get()
@@ -178,7 +183,7 @@ class JobController extends Controller
             ], 404);
         }
 
-        $job = JobPost::with(['company', 'skills'])
+        $job = JobPost::with(['company', 'skills', 'category'])
             ->where('status', 'Open')
             ->find($id);
 

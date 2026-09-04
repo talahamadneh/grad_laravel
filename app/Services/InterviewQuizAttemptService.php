@@ -7,7 +7,10 @@ use App\Models\JobPost;
 use App\Models\SavedJob;
 use App\Models\Student;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use Throwable;
 
 class InterviewQuizAttemptService
 {
@@ -53,18 +56,6 @@ class InterviewQuizAttemptService
     {
         $this->ensureSavedJob($job, $student);
 
-        InterviewQuizAttempt::where('student_id', $student->id)
-            ->where('job_id', $job->id)
-            ->where('status', InterviewQuizAttempt::STATUS_OPEN)
-            ->update([
-                'status' => InterviewQuizAttempt::STATUS_ABANDONED,
-                'answers' => null,
-                'score' => null,
-                'completed_at' => now(),
-            ]);
-
-        Cache::forget($this->openAttemptCacheKey($student->id, $job->id));
-
         $previousQuestions = InterviewQuizAttempt::where('student_id', $student->id)
             ->where('job_id', $job->id)
             ->latest('id')
@@ -77,7 +68,42 @@ class InterviewQuizAttemptService
             ->values()
             ->all();
 
-        return $this->createAttempt($job, $student, $previousQuestions);
+        // Generate and validate the replacement before changing the current
+        // attempt. A provider failure must not leave the student without an
+        // open quiz to continue.
+        try {
+            $result = $this->questionGenerator->generate($job, $student, $previousQuestions);
+        } catch (Throwable $exception) {
+            Log::warning('Interview retake could not avoid previous questions; retrying without exclusions.', [
+                'student_id' => $student->id,
+                'job_id' => $job->id,
+                'error' => $exception->getMessage(),
+            ]);
+
+            $result = $this->questionGenerator->generate($job, $student);
+            $result['metadata']['retake_avoidance_fallback_used'] = true;
+        }
+        $questions = $this->shuffleAnswerOptions($result['questions']);
+
+        $attempt = DB::transaction(function () use ($job, $student, $questions) {
+            InterviewQuizAttempt::where('student_id', $student->id)
+                ->where('job_id', $job->id)
+                ->where('status', InterviewQuizAttempt::STATUS_OPEN)
+                ->update([
+                    'status' => InterviewQuizAttempt::STATUS_ABANDONED,
+                    'answers' => null,
+                    'score' => null,
+                    'completed_at' => now(),
+                ]);
+
+            return $this->persistAttempt($job, $student, $questions);
+        });
+
+        $cacheKey = $this->openAttemptCacheKey($student->id, $job->id);
+        Cache::forget($cacheKey);
+        Cache::put($cacheKey, $attempt->id, now()->addHours(6));
+
+        return $this->attemptResponse($attempt, metadata: $result['metadata']);
     }
 
     public function submit(InterviewQuizAttempt $attempt, Student $student, array $answers): array
@@ -171,8 +197,16 @@ class InterviewQuizAttemptService
     {
         $result = $this->questionGenerator->generate($job, $student, $avoidQuestions);
         $questions = $this->shuffleAnswerOptions($result['questions']);
+        $attempt = $this->persistAttempt($job, $student, $questions);
 
-        $attempt = InterviewQuizAttempt::create([
+        Cache::put($this->openAttemptCacheKey($student->id, $job->id), $attempt->id, now()->addHours(6));
+
+        return $this->attemptResponse($attempt, metadata: $result['metadata']);
+    }
+
+    private function persistAttempt(JobPost $job, Student $student, array $questions): InterviewQuizAttempt
+    {
+        return InterviewQuizAttempt::create([
             'student_id' => $student->id,
             'job_id' => $job->id,
             'questions' => $questions,
@@ -182,10 +216,6 @@ class InterviewQuizAttemptService
             'started_at' => now(),
             'completed_at' => null,
         ]);
-
-        Cache::put($this->openAttemptCacheKey($student->id, $job->id), $attempt->id, now()->addHours(6));
-
-        return $this->attemptResponse($attempt, metadata: $result['metadata']);
     }
 
     private function attemptResponse(InterviewQuizAttempt $attempt, array $metadata = [], bool $fromCache = false): array

@@ -26,7 +26,8 @@ class JobMatchingService
 
         $jobs = JobPost::with([
             'company',
-            'skills'
+            'skills',
+            'category'
         ])
             ->where('status', 'Open')
             ->get();
@@ -44,6 +45,12 @@ class JobMatchingService
                 "salary" => $job->salary,
                 "employment_type" => $job->employment_type,
                 "level" => $job->level,
+                "category_id" => $job->category_id,
+                "category" => $job->category ? [
+                    'id' => $job->category->id,
+                    'name' => $job->category->name,
+                    'slug' => $job->category->slug,
+                ] : null,
                 "min_experience_years" => $job->min_experience_years,
                 "max_experience_years" => $job->max_experience_years,
                 "work_mode" => $job->work_mode,

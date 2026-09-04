@@ -1716,7 +1716,9 @@ Input: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             'student_major' => $student?->major,
             'student_skills' => $student?->skills?->pluck('name')->filter()->values()->all() ?? [],
             'resume_projects' => $resume?->projects ?? [],
-            'resume_experience' => $resume?->experience ?? [],
+            'resume_experience' => $student
+                ? app(StudentExperienceService::class)->forResume($student)
+                : [],
         ];
     }
 

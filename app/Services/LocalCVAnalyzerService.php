@@ -147,7 +147,7 @@ class LocalCVAnalyzerService
             'summary' => $resume->summary ?? $student?->bio,
             'skills' => $resume->skills ?? [],
             'education' => $resume->education ?? [],
-            'experience' => $resume->experience ?? [],
+            'experience' => app(StudentExperienceService::class)->forResume($student),
             'projects' => $resume->projects ?? [],
             'certificates' => $resume->certificates ?? [],
             'languages' => $resume->languages ?? [],
@@ -214,4 +214,3 @@ Local analysis:
         return 'Needs Improvement';
     }
 }
-

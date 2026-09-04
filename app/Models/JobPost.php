@@ -11,6 +11,7 @@ class JobPost extends Model
 
     protected $fillable = [
         'company_id',
+        'category_id',
         'title',
         'department',
         'description',
@@ -50,6 +51,11 @@ class JobPost extends Model
     public function company()
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function category()
+    {
+        return $this->belongsTo(JobCategory::class, 'category_id');
     }
 
     public function skills()
